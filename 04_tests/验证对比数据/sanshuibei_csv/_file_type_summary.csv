@@ -1,0 +1,17 @@
+number,file,events,phases,max_samples,value_min,value_max,value_mean,inferred_type,paired_file
+0,sanshuibei\SwitchCurve(0).csv,1000,3,790,0.0,7.685999870300293,1.3161159710197292,三相电流 (3-phase current),SwitchCurve(3).csv
+3,sanshuibei\SwitchCurve(3).csv,3000,1,790,0.0,4.196000099182129,0.2968299035478586,单相功率/合成量 (1-phase power or derived quantity),SwitchCurve(0).csv
+4,sanshuibei\SwitchCurve(4).csv,1000,3,786,0.0,6.275000095367432,1.2599183953226085,三相电流 (3-phase current),SwitchCurve(7).csv
+7,sanshuibei\SwitchCurve(7).csv,3000,1,786,0.0,4.039000034332275,0.2548558719291408,单相功率/合成量 (1-phase power or derived quantity),SwitchCurve(4).csv
+8,sanshuibei\SwitchCurve(8).csv,1000,3,790,0.0,8.07800006866455,1.5404767623604683,三相电流 (3-phase current),SwitchCurve(11).csv
+11,sanshuibei\SwitchCurve(11).csv,3000,1,790,0.0,4.373000144958496,0.3182493607932048,单相功率/合成量 (1-phase power or derived quantity),SwitchCurve(8).csv
+12,sanshuibei\SwitchCurve(12).csv,1000,3,789,0.0,8.156999588012695,1.261364380319554,三相电流 (3-phase current),SwitchCurve(15).csv
+15,sanshuibei\SwitchCurve(15).csv,3000,1,791,0.0,4.235000133514404,0.24866300436712202,单相功率/合成量 (1-phase power or derived quantity),SwitchCurve(12).csv
+16,sanshuibei\SwitchCurve(16).csv,1000,3,789,0.0,7.724999904632568,1.3150436104321943,三相电流 (3-phase current),SwitchCurve(19).csv
+19,sanshuibei\SwitchCurve(19).csv,2998,1,1000,0.0,4.353000164031982,0.26382361039654245,单相功率/合成量 (1-phase power or derived quantity),SwitchCurve(16).csv
+20,sanshuibei\SwitchCurve(20).csv,1000,3,790,0.0,8.548999786376953,1.2764655337571016,三相电流 (3-phase current),SwitchCurve(23).csv
+23,sanshuibei\SwitchCurve(23).csv,3000,1,1000,0.0,4.451000213623047,0.2316584895405548,单相功率/合成量 (1-phase power or derived quantity),SwitchCurve(20).csv
+24,sanshuibei\SwitchCurve(24).csv,1000,3,790,0.0,6.940999984741211,1.335892422463038,三相电流 (3-phase current),SwitchCurve(27).csv
+27,sanshuibei\SwitchCurve(27).csv,3000,1,1000,0.0,4.489999771118164,0.27305529239128595,单相功率/合成量 (1-phase power or derived quantity),SwitchCurve(24).csv
+28,sanshuibei\SwitchCurve(28).csv,1000,3,791,0.0,7.685999870300293,1.4635901579964277,三相电流 (3-phase current),SwitchCurve(31).csv
+31,sanshuibei\SwitchCurve(31).csv,3000,1,793,0.0,4.744999885559082,0.26361529335739264,单相功率/合成量 (1-phase power or derived quantity),SwitchCurve(28).csv

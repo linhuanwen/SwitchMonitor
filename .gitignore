@@ -1,0 +1,56 @@
+# ============================================
+# SwitchMonitor - .gitignore
+# 道岔监测系统 (C# .NET Framework 4.0 / WinForms)
+# ============================================
+
+# --- 编译产物 ---
+**/bin/
+**/obj/
+*.exe
+*.dll
+*.pdb
+*.ilk
+*.exp
+*.lib
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.userprefs
+
+# --- NuGet ---
+packages/
+*.nupkg
+
+# --- 原始数据 (过大，不适合直接入 Git) ---
+# 如需版本管理，请使用 Git LFS
+03_raw_data/
+
+# --- 运行时日志 ---
+07_logs/
+
+# --- 编译好的部署包 (源码可重新编译) ---
+# 仅保留部署文档，排除二进制
+06_deploy/build_out/
+
+# --- IDE / 编辑器 ---
+.vs/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+*.lock
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# --- 临时文件 ---
+*.tmp
+*.temp
+*.cache
+*.log

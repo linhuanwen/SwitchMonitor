@@ -1,0 +1,104 @@
+三水北站 (Station_SSB) 配置文件夹分析报告
+==================================================
+
+1. 文件夹内容概览
+   配置文件夹包含：
+   - digit.ini：开关量（数字量）点表，定义继电器/开关位置等
+   - DevVars.xml：设备变量定义，包含道岔、按钮、信号机等
+   - AnalogParaModel_SSB_晴天参数.INI：模拟量参数（表示电压、转辙机电压等）
+   - DC.ini：道岔电流/功率模拟量通道配置（对应 CSM2010 道岔曲线）
+   - CommConf.xml：通信接口配置（TCC、CBI、ZPW2000、CTC 等）
+   - 多个 *.xml 状态图/页面配置文件
+
+2. digit.ini 开关量点表
+   - 总条目数：14804
+   - 非 DUMMY 条目数：6109
+
+   命名模式统计：
+     H/B 后缀: 951 条
+     含 GH/GB: 72 条
+     L/U 后缀: 1658 条
+
+   关键已命名开关量对：
+     point_id 184 -> 537GH
+     point_id 185 -> 537GB
+     point_id 94 -> IBGH
+     point_id 95 -> IBGB
+     point_id 142 -> 599GH
+     point_id 125 -> 626GB
+     point_id 130 -> 646GH
+     point_id 172 -> S1LQGH
+
+3. DevVars.xml 设备变量
+   - 总属性条目数：5318
+   - 设备类型分布：
+     道岔: 56 条
+     灯或按钮: 491 条
+     信号机: 1336 条
+     外电网: 87 条
+     电源屏: 132 条
+     站台安全门: 122 条
+     电缆绝缘: 295 条
+     电源漏流: 91 条
+     移频轨道电路: 1844 条
+     转辙机: 136 条
+     联锁: 605 条
+     列控: 1 条
+     ZPW-2000A: 1 条
+     CTC: 1 条
+     断路器: 20 条
+     灯丝断丝: 100 条
+
+   道岔 1-4 的表示继电器映射（来自 DevVars.xml）：
+
+4. 模拟量参数配置
+   - 配置段：
+     轨出1电压: 56 条，ID 范围 0-55
+     主轨轨入电压: 56 条，ID 范围 0-55
+     移频发送器发送电压: 56 条，ID 范围 0-55
+
+5. 数据点与配置映射
+   将本地接收目录扳动数据中的高频 point_id 与 digit.ini 名称匹配：
+     point_id 184: 1362  次 -> 537GH
+     point_id 185: 1362  次 -> 537GB
+     point_id 168: 1360  次 -> DUMMY
+     point_id 170: 1360  次 -> DUMMY
+     point_id 174: 1354  次 -> DUMMY
+     point_id 187: 1353  次 -> DUMMY
+     point_id 186: 1351  次 -> DUMMY
+     point_id 175: 1337  次 -> DUMMY
+     point_id 94 : 54    次 -> IBGH
+     point_id 93 : 52    次 -> DUMMY
+     point_id 122: 37    次 -> DUMMY
+     point_id 142: 35    次 -> 599GH
+     point_id 125: 34    次 -> 626GB
+     point_id 95 : 33    次 -> IBGB
+     point_id 141: 32    次 -> DUMMY
+     point_id 182: 30    次 -> DUMMY
+     point_id 201: 30    次 -> DUMMY
+     point_id 127: 28    次 -> DUMMY
+     point_id 130: 28    次 -> 646GH
+     point_id 172: 28    次 -> S1LQGH
+
+6. 数据与配置对照的异常发现
+   - point_id 184/185 在配置中对应 537GH / 537GB。
+   - 但数据分析显示：point_id 170/174/175/184/185/186/187 的 0x2f/0x00 状态
+     几乎完全同步（同步率 >99%），而不是互补。
+   - point_id 168 几乎始终为 0x00，与其他 7 点约 50% 反相。
+   - 模拟量（表示电压）与这些数字量状态之间没有稳定、显著的对应关系。
+   - 结论：当前“本地接收目录扳动”数据更可能是通信心跳/测试数据，
+     或配置文件与数据实际来源不一致，而非真实的道岔定位/反位切换记录。
+
+7. 待确认事项
+   - 请确认 point_id 168、170、174、175、186、187 在 digit.ini 中为何为 DUMMY，
+     它们在现场实际对应什么设备？
+   - 请确认 537GH / 537GB 中 H 和 B 哪个是定位、哪个是反位。
+   - 请确认“本地接收目录扳动”中的数据是否为真实道岔动作，还是测试/心跳数据。
+   - 如需把“扳动”与“表示”两类数据按道岔关联，需要设备点号映射表。
+
+8. 已生成的解析文件
+   - shuju/Station_SSB_parsed/digit_config.csv
+   - shuju/Station_SSB_parsed/DevVars_config.csv
+   - shuju/Station_SSB_parsed/analog_config.csv
+   - shuju/Station_SSB_parsed/data_point_mapping.csv
+   - shuju/本地接收目录扳动_parsed/_switch_movements_named.csv

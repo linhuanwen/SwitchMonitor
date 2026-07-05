@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net40</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>SwitchMonitor.Tests</RootNamespace>
+    <AssemblyName>SwitchMonitor.Tests</AssemblyName>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <PlatformTarget>x86</PlatformTarget>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="System.Windows.Forms" />
+    <Reference Include="System.Drawing" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\SwitchMonitor.Common\SwitchMonitor.Common.csproj" />
+    <ProjectReference Include="..\SwitchMonitor.Data\SwitchMonitor.Data.csproj" />
+    <ProjectReference Include="..\SwitchMonitor.UI\SwitchMonitor.UI.csproj" />
+    <ProjectReference Include="..\SwitchMonitor.Diagnosis\SwitchMonitor.Diagnosis.csproj" />
+    <ProjectReference Include="..\DiagnosisEngine\DiagnosisEngine.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Reference Include="Newtonsoft.Json">
+      <HintPath>..\lib\net40\Newtonsoft.Json.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="..\lib\sqlite3.dll" CopyToOutputDirectory="PreserveNewest" Link="sqlite3.dll" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="System.ValueTuple" Version="4.5.0" />
+  </ItemGroup>
+</Project>

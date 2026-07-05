@@ -1,0 +1,35 @@
+{
+  "switchGroups": [
+    {"id": "1-1", "label": "1-1", "dataFileIndex": 0},
+    {"id": "1-X", "label": "1-X", "dataFileIndex": 4},
+    {"id": "3-1", "label": "3-1", "dataFileIndex": 8},
+    {"id": "3-X", "label": "3-X", "dataFileIndex": 12},
+    {"id": "2-1", "label": "2-1", "dataFileIndex": 16},
+    {"id": "2-X", "label": "2-X", "dataFileIndex": 20},
+    {"id": "4-1", "label": "4-1", "dataFileIndex": 24},
+    {"id": "4-X", "label": "4-X", "dataFileIndex": 28}
+  ],
+  "dataSourceDir": ".\\shuju\\sanshuibei",
+  "parsedDataDir": ".\\parsed_data",
+  "scanInterval": 5,
+  "alarmThresholds": {
+    "current": { "enabled": true, "value": 2.0, "unit": "A" },
+    "power":   { "enabled": true, "value": 1.5, "unit": "KW" }
+  },
+  "chartColors": {
+    "currentA": "#FF4444",
+    "currentB": "#44FF44",
+    "currentC": "#4488FF",
+    "power": "#FFAA00",
+    "thresholdLine": "#FF0000",
+    "background": "#1a1a2e",
+    "gridLine": "#333355",
+    "textColor": "#888888"
+  },
+  "ui": {
+    "sidebarWidthPercent": 18,
+    "dateFormat": "yyyy/MM/dd",
+    "xAxisDefaultMax": 14,
+    "xAxisExtendedMax": 30
+  }
+}

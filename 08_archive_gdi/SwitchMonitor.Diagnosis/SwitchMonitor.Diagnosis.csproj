@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net40</TargetFramework>
+    <RootNamespace>SwitchMonitor.Diagnosis</RootNamespace>
+    <AssemblyName>SwitchMonitor.Diagnosis</AssemblyName>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\SwitchMonitor.Common\SwitchMonitor.Common.csproj" />
+  </ItemGroup>
+</Project>

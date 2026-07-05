@@ -1,0 +1,50 @@
+
+Microsoft Visual Studio Solution File, Format Version 11.00
+# Visual Studio 2010
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SwitchMonitor.Common", "SwitchMonitor.Common\SwitchMonitor.Common.csproj", "{A1B2C3D4-1234-5678-9ABC-DEF012345678}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SwitchMonitor.Diagnosis", "SwitchMonitor.Diagnosis\SwitchMonitor.Diagnosis.csproj", "{B2C3D4E5-2345-6789-ABCD-EF0123456789}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SwitchMonitor.Data", "SwitchMonitor.Data\SwitchMonitor.Data.csproj", "{C3D4E5F6-3456-7890-BCDE-F01234567890}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SwitchMonitor.UI", "SwitchMonitor.UI\SwitchMonitor.UI.csproj", "{D4E5F6A7-4567-8901-CDEF-012345678901}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DiagnosisEngine", "DiagnosisEngine\DiagnosisEngine.csproj", "{E5F6A7B8-5678-9012-DEFA-123456789012}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SwitchMonitor.Tests", "..\..\04_测试阶段的文件\SwitchMonitor.Tests\SwitchMonitor.Tests.csproj", "{F6A7B8C9-6789-0123-EFAB-234567890123}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|x86 = Debug|x86
+		Release|x86 = Release|x86
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{A1B2C3D4-1234-5678-9ABC-DEF012345678}.Debug|x86.ActiveCfg = Debug|x86
+		{A1B2C3D4-1234-5678-9ABC-DEF012345678}.Debug|x86.Build.0 = Debug|x86
+		{A1B2C3D4-1234-5678-9ABC-DEF012345678}.Release|x86.ActiveCfg = Release|x86
+		{A1B2C3D4-1234-5678-9ABC-DEF012345678}.Release|x86.Build.0 = Release|x86
+		{B2C3D4E5-2345-6789-ABCD-EF0123456789}.Debug|x86.ActiveCfg = Debug|x86
+		{B2C3D4E5-2345-6789-ABCD-EF0123456789}.Debug|x86.Build.0 = Debug|x86
+		{B2C3D4E5-2345-6789-ABCD-EF0123456789}.Release|x86.ActiveCfg = Release|x86
+		{B2C3D4E5-2345-6789-ABCD-EF0123456789}.Release|x86.Build.0 = Release|x86
+		{C3D4E5F6-3456-7890-BCDE-F01234567890}.Debug|x86.ActiveCfg = Debug|x86
+		{C3D4E5F6-3456-7890-BCDE-F01234567890}.Debug|x86.Build.0 = Debug|x86
+		{C3D4E5F6-3456-7890-BCDE-F01234567890}.Release|x86.ActiveCfg = Release|x86
+		{C3D4E5F6-3456-7890-BCDE-F01234567890}.Release|x86.Build.0 = Release|x86
+		{D4E5F6A7-4567-8901-CDEF-012345678901}.Debug|x86.ActiveCfg = Debug|x86
+		{D4E5F6A7-4567-8901-CDEF-012345678901}.Debug|x86.Build.0 = Debug|x86
+		{D4E5F6A7-4567-8901-CDEF-012345678901}.Release|x86.ActiveCfg = Release|x86
+		{D4E5F6A7-4567-8901-CDEF-012345678901}.Release|x86.Build.0 = Release|x86
+		{E5F6A7B8-5678-9012-DEFA-123456789012}.Debug|x86.ActiveCfg = Debug|x86
+		{E5F6A7B8-5678-9012-DEFA-123456789012}.Debug|x86.Build.0 = Debug|x86
+		{E5F6A7B8-5678-9012-DEFA-123456789012}.Release|x86.ActiveCfg = Release|x86
+		{E5F6A7B8-5678-9012-DEFA-123456789012}.Release|x86.Build.0 = Release|x86
+		{F6A7B8C9-6789-0123-EFAB-234567890123}.Debug|x86.ActiveCfg = Debug|x86
+		{F6A7B8C9-6789-0123-EFAB-234567890123}.Debug|x86.Build.0 = Debug|x86
+		{F6A7B8C9-6789-0123-EFAB-234567890123}.Release|x86.ActiveCfg = Release|x86
+		{F6A7B8C9-6789-0123-EFAB-234567890123}.Release|x86.Build.0 = Release|x86
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal

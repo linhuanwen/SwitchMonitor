@@ -1,0 +1,141 @@
+本地接收目录（现场软件）整体分析报告
+==================================================
+
+1. 软件概述
+   这是一个铁路信号集中监测系统（CSM - Centralized Signal Monitoring），
+   用于对车站信号设备（道岔、轨道电路、信号机、电源屏、列控中心等）
+   进行实时监测、报警、数据记录和回放。
+
+   主要可执行程序：
+   - CsmthStation.exe：站机主程序，负责数据采集与处理
+   - CsmthStationMonitor.exe：站机监控/显示程序
+   - CsmthStation_Nbr.exe：邻居站/备用程序
+   - CsmthReplay.exe / CsmthReplayMonitor.exe：历史数据回放程序
+   - AutoUpdate.exe：自动更新程序
+   - Daemon.exe：守护进程
+
+   版本信息（来自 CsmAppInfo.ini）：
+     是否报错弹窗=0
+     终端是否注册通信平台=1
+     系统路径=E:\站改
+     总数=0
+     日期=2022/11/2
+     开始时间=2022/10/14 01:00:00
+     结束时间=2022/11/2 23:46:00
+     回放路径=E:\站改
+
+2. 软件架构
+   - 进程：AppInfo.ini 定义了 CsmthStationMonitor 和 CsmthStation 两个核心进程
+   - 通信平台：CommPlatform.xml 统一配置各进程间的实时通信服务（rt）
+   - 插件化：PlugIn.xml 为不同程序配置了若干插件 DLL，主要功能包括：
+     * 历史数据访问（HisDataAccessPlug）
+     * 实时数据（RealTimeDataPlug / nRealTimeDataPlug）
+     * 接口插件：CAN、XY、DYP、CBI/Tk/ADX、Wdw 等
+     * 报警、分析、回放、状态图、设备状态图等展示插件
+   - 依赖库：Depends/、Plugins/ 目录下包含 DevExpress、LiveCharts、
+     Newtonsoft.Json、NLog、ZeroMQ 等第三方/自研库
+   - 界面皮肤：Skin/ 目录下包含大量 XAML/界面资源
+
+3. 数据与配置结构
+   DataFile/ 目录按车站组织配置，每个子目录对应一个车站：
+     - Station_DHD
+     - Station_DHD_20231027bak
+     - Station_DHD_20231027bakbak
+     - Station_DHD_20250131bak
+     - Station_DHS
+     - Station_MDZ
+     - Station_SDB
+     - Station_SDY
+     - Station_SHZ
+     - Station_SJM
+     - Station_SM3
+     - Station_SM4
+     - Station_SM5
+     - Station_SM6
+     - Station_SSB
+     - Station_SYJ
+     - Station_YDH
+     - Station_ZQZ
+
+   每个车站配置文件夹包含（以 Station_SSB 为例）：
+   - digit.ini：开关量点表（继电器、道岔表示等）
+   - DevVars.xml：设备变量（道岔、按钮、信号机、轨道电路等）
+   - AnalogParaModel_*.INI：模拟量参数（表示电压、转辙机电压等）
+   - DC.ini：道岔电流/功率通道配置（对应 CSM2010 道岔曲线）
+   - CommConf.xml：该站通信接口配置
+   - *StatusGraph.xml：TCC、CBI、道岔、轨道电路等状态图配置
+   - 报警配置文件/：大量报警规则 XML
+
+4. 车站/终端对照
+   Center.xml 中注册了 24 个车站终端、53 个调度终端：
+     SJM = 江门站  
+     SXH = 双水镇
+     STS = 台山站  
+     SKP = 开平南站
+     SM1 = 中继1站 
+     SEN = 恩平站  
+     SDH = 大槐站  
+     SDY = 阳东站  
+     SM2 = 中继2站 
+     SYJ = 阳江站  
+     SM3 = 中继3站 
+     SXY = 阳西站  
+     SM4 = 中继4站 
+     SMT = 马踏站  
+     SM5 = 中继5站 
+     SDB = 电白站  
+     SM6 = 中继6站 
+     MDZ = 茂名东站
+     ZQZ = 肇庆站  
+     DHS = 鼎湖山  
+     DHD = 鼎湖东  
+     SHZ = 四会站  
+     YDH = 云东海  
+     SSB = 三水北  
+
+5. 各车站通信接口类型
+   Station_DHD: TCC, CbiTkADX, ZPW2000, DYP, CTC, 祥元
+   Station_DHS: TCC, CbiTkADX, ZPW2000, DYP, CTC, 接口通信分机
+   Station_MDZ: CBI, TCC武广, DYP, 祥元, StationToServer, JZ, JZ, JZ, DCQK, GYBDC
+   Station_SDB: TCC, CBI, ZPW2000, ZPW2000_1, DYP, CTC, 接口通信分机, StationToServer, GYBDC, DCQK
+   Station_SDY: TCC, CBI, ZPW2000, ZPW2000_1, DYP, CTC, 接口通信分机, StationToServer, GYBDC, DCQK
+   Station_SHZ: TCC, CbiTkADX, ZPW2000, DYP, CTC, 祥元
+   Station_SJM: TCC, CBI, DCQK, ZPW2000, ZPW2000_1, DYP, CTC, 接口通信分机, StationToServer, GPWDW
+   Station_SM3: TCC, ZPW2000, ZPW2000_1, DYP, 接口通信分机, StationToServer
+   Station_SM4: TCC, ZPW2000, ZPW2000_1, DYP, 接口通信分机, StationToServer
+   Station_SM5: TCC, ZPW2000, ZPW2000_1, DYP, 祥元, StationToServer
+   Station_SM6: TCC, ZPW2000, ZPW2000_1, DYP, 祥元, StationToServer
+   Station_SSB: TCC, CbiTkADX, ZPW2000, DYP, CTC, 祥元
+   Station_SYJ: TCC, CBI, ZPW2000, ZPW2000_1, DYP, CTC, 祥元, StationToServer, DCQK
+   Station_YDH: TCC, CbiTkADX, ZPW2000, DYP, CTC, 祥元, StationToServer
+   Station_ZQZ: TCC, CbiTkADX, ZPW2000, ZPW2000_1, DYP, CTC, 祥元
+
+6. 与我们解析结果的对比
+   现场软件目录下有几个测试输出 CSV：
+   - 本地接收目录扳动_test/digit_test3.csv
+   - 本地接收目录表示_test/analog_test.csv
+
+   对比结论：
+   - digit_test3.csv 的格式与我们的 Digit 解析器输出几乎完全一致
+     （91 行 vs 92 行，仅相差 1 条边界记录），说明我们的解析逻辑正确。
+   - analog_test.csv 与我们解析的模拟量数据一致，包括那个 channel=555 的
+     异常样本（可能是二进制边界处的误解析）。
+   - digit_test2.csv 是 signed 16-bit 解释的调试输出，point_low 列才是正确的
+     低字节点号；digit_test.csv 仅保留了第一条记录，可能是旧版本/测试输出。
+
+7. 数据层面的重要发现
+   对“本地接收目录扳动”中的 Digit 数据进行分析：
+   - 高频点号 184/185 在 Station_SSB/digit.ini 中对应 537GH / 537GB。
+   - 但 170/174/175/184/185/186/187 这 7 个点的 0x2f/0x00 状态同步率 >99%，
+     不像“定位/反位”互补对；168 几乎始终为 0x00。
+   - 模拟量（表示电压）与这些数字量状态没有稳定对应关系。
+   - 因此当前这部分 Digit 数据更像是通信测试/心跳数据，或配置文件与实际
+     数据来源不一致，而非真实的道岔动作记录。
+
+8. 建议下一步
+   - 确认现场软件中 Station_SSB 是否就是当前数据来源的车站。
+   - 若确实是该站数据，需核对 digit.ini 中 point_id 168/170/174/175/186/187
+     为何为 DUMMY，以及 537GH/537GB 的 H/B 含义。
+   - 若数据来自其他车站，需切换到对应车站配置（如 Station_DHD、Station_DHS 等）
+     重新匹配点号。
+   - 可利用 CsmthReplay.exe 加载现场数据，与软件界面显示对比，验证解析结果。

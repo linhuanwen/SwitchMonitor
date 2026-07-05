@@ -1,0 +1,112 @@
+供现场核对的参考时间点
+============================================================
+
+说明：
+- point_id 168、170、174、175、184、185、186、187 suspected 为 8 组道岔相关测点
+- 184=537GH，185=537GB（来自 digit.ini 配置）
+- 其余 6 个在配置中名为 DUMMY，需现场确认对应道岔编号
+- H/B 含义待现场核对：哪个代表定位、哪个代表反位
+- 0x2f / 0x00 为两种稳定状态
+
+一、稳定时段（推荐优先核对）
+这些时段内 8 个 point_id 状态保持不变，便于现场查看实际位置。
+请记录每个 point_id 对应道岔的实际位置，以及 184/185 的 H/B 含义。
+
+1. 2026-06-26 01:01:00 ~ 2026-06-26 02:00:00（持续 3540 秒）
+   point 168: 0x00
+   point 170: 0x00
+   point 174: 0x00
+   point 175: 0x00
+   point 184 (537GH): 0x00
+   point 185 (537GB): 0x00
+   point 186: 0x00
+   point 187: 0x00
+
+2. 2026-06-27 01:01:00 ~ 2026-06-27 02:00:00（持续 3540 秒）
+   point 168: 0x00
+   point 170: 0x2f
+   point 174: 0x2f
+   point 175: 0x2f
+   point 184 (537GH): 0x2f
+   point 185 (537GB): 0x2f
+   point 186: 0x2f
+   point 187: 0x2f
+
+3. 2026-06-27 03:01:00 ~ 2026-06-27 04:00:00（持续 3540 秒）
+   point 168: 0x00
+   point 170: 0x00
+   point 174: 0x00
+   point 175: 0x00
+   point 184 (537GH): 0x00
+   point 185 (537GB): 0x00
+   point 186: 0x00
+   point 187: 0x00
+
+4. 2026-06-27 12:01:00 ~ 2026-06-27 13:00:00（持续 3540 秒）
+   point 168: 0x00
+   point 170: 0x2f
+   point 174: 0x2f
+   point 175: 0x2f
+   point 184 (537GH): 0x2f
+   point 185 (537GB): 0x2f
+   point 186: 0x2f
+   point 187: 0x2f
+
+5. 2026-06-27 18:01:00 ~ 2026-06-27 19:00:00（持续 3540 秒）
+   point 168: 0x00
+   point 170: 0x00
+   point 174: 0x00
+   point 175: 0x00
+   point 184 (537GH): 0x00
+   point 185 (537GB): 0x00
+   point 186: 0x00
+   point 187: 0x00
+
+6. 2026-06-28 03:01:00 ~ 2026-06-28 04:00:00（持续 3540 秒）
+   point 168: 0x00
+   point 170: 0x2f
+   point 174: 0x2f
+   point 175: 0x2f
+   point 184 (537GH): 0x2f
+   point 185 (537GB): 0x2f
+   point 186: 0x2f
+   point 187: 0x2f
+
+7. 2026-06-28 09:00:52 ~ 2026-06-28 10:00:01（持续 3549 秒）
+   point 168: 0x00
+   point 170: 0x00
+   point 174: 0x00
+   point 175: 0x00
+   point 184 (537GH): 0x00
+   point 185 (537GB): 0x00
+   point 186: 0x00
+   point 187: 0x00
+
+8. 2026-06-28 16:01:00 ~ 2026-06-28 17:00:00（持续 3540 秒）
+   point 168: 0x00
+   point 170: 0x2f
+   point 174: 0x2f
+   point 175: 0x2f
+   point 184 (537GH): 0x2f
+   point 185 (537GB): 0x2f
+   point 186: 0x2f
+   point 187: 0x2f
+
+二、状态转换时刻（如需观察变化过程）
+这些时刻 state 发生 0x2f <-> 0x00 转换，可结合稳定时段判断方向。
+
+1. 2026-06-26 00:00:08  point 170 DUMMY     : 0x2f (state A) -> 0x00 (state B)
+2. 2026-06-26 00:00:08  point 174 DUMMY     : 0x2f (state A) -> 0x00 (state B)
+3. 2026-06-26 00:00:08  point 175 DUMMY     : 0x2f (state A) -> 0x00 (state B)
+4. 2026-06-26 00:00:08  point 184 537GH     : 0x2f (state A) -> 0x00 (state B)
+5. 2026-06-26 00:00:08  point 185 537GB     : 0x2f (state A) -> 0x00 (state B)
+6. 2026-06-26 00:00:08  point 186 DUMMY     : 0x2f (state A) -> 0x00 (state B)
+7. 2026-06-26 00:00:08  point 187 DUMMY     : 0x2f (state A) -> 0x00 (state B)
+8. 2026-06-26 00:00:56  point 170 DUMMY     : 0x00 (state B) -> 0x2f (state A)
+9. 2026-06-26 00:00:56  point 174 DUMMY     : 0x00 (state B) -> 0x2f (state A)
+10. 2026-06-26 00:00:56  point 175 DUMMY     : 0x00 (state B) -> 0x2f (state A)
+11. 2026-06-26 00:00:56  point 184 537GH     : 0x00 (state B) -> 0x2f (state A)
+12. 2026-06-26 00:00:56  point 185 537GB     : 0x00 (state B) -> 0x2f (state A)
+13. 2026-06-26 00:00:56  point 186 DUMMY     : 0x00 (state B) -> 0x2f (state A)
+14. 2026-06-26 00:00:56  point 187 DUMMY     : 0x00 (state B) -> 0x2f (state A)
+15. 2026-06-26 00:00:57  point 170 DUMMY     : 0x2f (state A) -> 0x00 (state B)

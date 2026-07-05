@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net40</TargetFramework>
+    <OutputType>WinExe</OutputType>
+    <RootNamespace>SwitchMonitor.UI</RootNamespace>
+    <AssemblyName>SwitchMonitor</AssemblyName>
+    <UseWindowsForms>true</UseWindowsForms>
+    <PlatformTarget>x86</PlatformTarget>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="System.Windows.Forms" />
+    <Reference Include="System.Drawing" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\SwitchMonitor.Common\SwitchMonitor.Common.csproj" />
+    <ProjectReference Include="..\SwitchMonitor.Data\SwitchMonitor.Data.csproj" />
+    <ProjectReference Include="..\SwitchMonitor.Diagnosis\SwitchMonitor.Diagnosis.csproj" />
+    <ProjectReference Include="..\DiagnosisEngine\DiagnosisEngine.csproj" />
+  </ItemGroup>
+</Project>

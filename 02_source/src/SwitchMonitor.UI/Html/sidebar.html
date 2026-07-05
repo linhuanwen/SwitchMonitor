@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<meta http-equiv="X-UA-Compatible" content="IE=8">
+<style>
+* { margin: 0; padding: 0; }
+body {
+    background: #1a1a2e;
+    color: #e0e0e0;
+    font: 12px SimSun, sans-serif;
+    overflow: hidden;
+    -webkit-user-select: none;
+    user-select: none;
+}
+.section { padding: 8px 10px; }
+.section-title {
+    font-size: 11px;
+    color: #666;
+    padding: 6px 10px 4px;
+    border-bottom: 1px solid #2a2a4e;
+    margin-bottom: 4px;
+}
+
+/* 转辙机列表 */
+.switch-list { list-style: none; }
+.switch-list li {
+    padding: 6px 12px;
+    cursor: pointer;
+    color: #aaa;
+    border-left: 2px solid transparent;
+}
+.switch-list li:hover { background: #252545; color: #fff; }
+.switch-list li.active {
+    background: #2a2a5e;
+    color: #fff;
+    border-left: 2px solid #4488FF;
+}
+
+/* 日期选择 */
+.date-list { list-style: none; }
+.date-list li {
+    padding: 4px 12px;
+    cursor: pointer;
+    color: #aaa;
+}
+.date-list li:hover { background: #252545; color: #fff; }
+.date-list li.active {
+    background: #252550;
+    color: #44FF44;
+}
+
+/* 时间列表 */
+.time-container { overflow-y: auto; }
+.time-list { list-style: none; }
+.time-list li {
+    padding: 5px 12px;
+    cursor: pointer;
+    color: #aaa;
+    font-family: Consolas, monospace;
+    font-size: 13px;
+}
+.time-list li:hover { background: #252545; color: #fff; }
+.time-list li.active {
+    background: #2a2a5e;
+    color: #FFAA00;
+    font-weight: bold;
+}
+
+/* 空状态提示 */
+.empty-hint {
+    color: #555;
+    text-align: center;
+    padding: 20px 10px;
+    font-size: 11px;
+}
+
+/* 分割线 */
+.divider { border: none; border-top: 1px solid #2a2a4e; margin: 4px 0; }
+</style>
+</head>
+<body>
+
+<div class="section">
+    <div class="section-title">转辙机组</div>
+    <ul class="switch-list" id="switchList"></ul>
+</div>
+
+<hr class="divider">
+
+<div class="section">
+    <div class="section-title">日期</div>
+    <ul class="date-list" id="dateList">
+        <li class="empty-hint">请选择转辙机</li>
+    </ul>
+</div>
+
+<hr class="divider">
+
+<div class="section">
+    <div class="section-title">动作时间</div>
+    <div class="time-container" id="timeContainer">
+        <ul class="time-list" id="timeList">
+            <li class="empty-hint">请选择日期</li>
+        </ul>
+    </div>
+</div>
+
+<script>
+// ===== IE7/IE8 兼容层 =====
+// JSON.parse polyfill for IE7
+if (typeof JSON === 'undefined' || typeof JSON.parse === 'undefined') {
+    window.JSON = { parse: function(t) { return (new Function('return ' + t))(); } };
+}
+
+var currentSwitchId = null;
+var currentDate = null;
+var currentTimestamp = null;
+
+// ===== 初始化：加载转辙机列表 =====
+function initSwitchGroups(groupsJson) {
+    var groups;
+    if (typeof groupsJson === 'string') {
+        try { groups = JSON.parse(groupsJson); } catch(e) { groups = []; }
+    } else {
+        groups = groupsJson;
+    }
+
+    var list = document.getElementById('switchList');
+    list.innerHTML = '';
+    for (var i = 0; i < groups.length; i++) {
+        var li = document.createElement('li');
+        li.innerText =groups[i].label || groups[i].Id || groups[i].id;
+        li.setAttribute('data-id', groups[i].Id || groups[i].id);
+        li.onclick = function() {
+            selectSwitch(this.getAttribute('data-id'));
+        };
+        list.appendChild(li);
+    }
+}
+
+// ===== 转辙机选择 =====
+function selectSwitch(switchId) {
+    currentSwitchId = switchId;
+    currentDate = null;
+    currentTimestamp = null;
+
+    // 高亮
+    var items = document.querySelectorAll('#switchList li');
+    for (var i = 0; i < items.length; i++) {
+        var id = items[i].getAttribute('data-id');
+        if (id === switchId) {
+            items[i].className = 'active';
+        } else {
+            items[i].className = '';
+        }
+    }
+
+    // 清空时间列表
+    document.getElementById('timeList').innerHTML = '<li class="empty-hint">加载中...</li>';
+
+    // 通知 C#
+    try { window.external.SelectSwitch(switchId); } catch(e) {}
+}
+
+// ===== 日期列表更新 =====
+function setDates(datesJson) {
+    var dates;
+    if (typeof datesJson === 'string') {
+        try { dates = JSON.parse(datesJson); } catch(e) { dates = []; }
+    } else {
+        dates = datesJson;
+    }
+
+    var list = document.getElementById('dateList');
+    list.innerHTML = '';
+
+    if (!dates || dates.length === 0) {
+        list.innerHTML = '<li class="empty-hint">暂无数据</li>';
+        document.getElementById('timeList').innerHTML = '<li class="empty-hint">该转辙机无数据</li>';
+        return;
+    }
+
+    for (var i = 0; i < dates.length; i++) {
+        var li = document.createElement('li');
+        li.innerText =dates[i];
+        li.setAttribute('data-date', dates[i]);
+        li.onclick = function() {
+            selectDate(this.getAttribute('data-date'));
+        };
+        list.appendChild(li);
+    }
+}
+
+function setSelectedDate(date) {
+    currentDate = date;
+    var items = document.querySelectorAll('#dateList li');
+    for (var i = 0; i < items.length; i++) {
+        if (items[i].getAttribute('data-date') === date) {
+            items[i].className = 'active';
+        } else {
+            items[i].className = '';
+        }
+    }
+    document.getElementById('timeList').innerHTML = '<li class="empty-hint">加载中...</li>';
+}
+
+// ===== 日期点击 =====
+function selectDate(date) {
+    setSelectedDate(date);
+    try { window.external.SelectDate(date); } catch(e) {}
+}
+
+// ===== 时间列表更新 =====
+function setTimes(timesJson) {
+    var timestamps;
+    if (typeof timesJson === 'string') {
+        try { timestamps = JSON.parse(timesJson); } catch(e) { timestamps = []; }
+    } else {
+        timestamps = timesJson;
+    }
+
+    var list = document.getElementById('timeList');
+    list.innerHTML = '';
+
+    if (!timestamps || timestamps.length === 0) {
+        list.innerHTML = '<li class="empty-hint">该日无动作记录</li>';
+        return;
+    }
+
+    for (var i = 0; i < timestamps.length; i++) {
+        var ts = timestamps[i];
+        var li = document.createElement('li');
+        li.innerText =formatTimestamp(ts);
+        li.setAttribute('data-ts', ts);
+        li.onclick = function() {
+            selectTime(this.getAttribute('data-ts'));
+        };
+        list.appendChild(li);
+    }
+
+    // 自适应时间列表高度（动态计算上方的实际占用高度）
+    var container = document.getElementById('timeContainer');
+    var bodyHeight = document.body.clientHeight || document.documentElement.clientHeight;
+    var switchSection = document.getElementById('switchList').parentNode;
+    var dateSection = document.getElementById('dateList').parentNode;
+    var topHeight = 0;
+    if (switchSection) topHeight += switchSection.offsetHeight;
+    if (dateSection) topHeight += dateSection.offsetHeight;
+    // 加上两个分割线的高度
+    var dividers = document.querySelectorAll('.divider');
+    for (var d = 0; d < dividers.length; d++) {
+        topHeight += dividers[d].offsetHeight;
+    }
+    var reservedBottom = 20; // 底部留白
+    if (bodyHeight > topHeight + reservedBottom) {
+        container.style.maxHeight = (bodyHeight - topHeight - reservedBottom) + 'px';
+        container.style.overflowY = 'auto';
+    }
+}
+
+function setSelectedTime(timestamp) {
+    currentTimestamp = timestamp;
+    var items = document.querySelectorAll('#timeList li');
+    for (var i = 0; i < items.length; i++) {
+        if (items[i].getAttribute('data-ts') === timestamp) {
+            items[i].className = 'active';
+        } else {
+            items[i].className = '';
+        }
+    }
+}
+
+// ===== 时间点击 =====
+function selectTime(timestamp) {
+    setSelectedTime(timestamp);
+    try { window.external.SelectTime(timestamp); } catch(e) {}
+}
+
+// ===== 格式化 Unix 时间戳为 HH:mm:ss =====
+function formatTimestamp(ts) {
+    var d = new Date(parseInt(ts) * 1000);
+    var h = d.getHours();
+    var m = d.getMinutes();
+    var s = d.getSeconds();
+    return (h < 10 ? '0' : '') + h + ':' +
+           (m < 10 ? '0' : '') + m + ':' +
+           (s < 10 ? '0' : '') + s;
+}
+
+// ===== 页面加载完成后初始化 =====
+function onSidebarReady() {
+    var groups = {{CONFIG_JSON}};
+    initSwitchGroups(groups);
+}
+</script>
+<script>onSidebarReady();</script>
+</body>
+</html>

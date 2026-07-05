@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<meta http-equiv="X-UA-Compatible" content="IE=8">
+<style>
+* { margin: 0; padding: 0; }
+body {
+    background: #1a1a2e;
+    color: #e0e0e0;
+    font: 12px SimSun, sans-serif;
+    overflow: hidden;
+}
+
+/* 工具栏 */
+.toolbar {
+    background: #222240;
+    padding: 4px 10px;
+    border-bottom: 1px solid #2a2a4e;
+    height: 28px;
+    line-height: 28px;
+}
+.toolbar label {
+    margin-right: 14px;
+    cursor: pointer;
+    color: #aaa;
+    font-size: 12px;
+}
+.toolbar input[type="checkbox"] { margin-right: 3px; vertical-align: middle; }
+.toolbar button {
+    float: right;
+    margin-left: 8px;
+    padding: 2px 10px;
+    background: #3a3a5e;
+    color: #ccc;
+    border: 1px solid #555;
+    font: 12px SimSun;
+    cursor: pointer;
+}
+.toolbar button:hover { background: #4a4a7e; }
+.toolbar button:disabled { color: #555; cursor: default; }
+
+/* 图表网格 */
+.chart-grid {
+    position: absolute;
+    top: 36px;
+    left: 0;
+    right: 0;
+    bottom: 0;
+}
+.chart-row { height: 50%; width: 100%; }
+.chart-cell {
+    width: 50%;
+    height: 100%;
+    float: left;
+    box-sizing: border-box;
+}
+.chart-inner {
+    width: 100%;
+    height: 100%;
+}
+
+/* 空状态 */
+.empty-state {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    color: #555;
+    font-size: 14px;
+    text-align: center;
+}
+</style>
+</head>
+<body>
+
+<div class="toolbar" id="toolbar">
+    <label><input type="checkbox" id="chkCurrentA" checked onchange="toggleCheckbox()">A相电流</label>
+    <label><input type="checkbox" id="chkCurrentB" checked onchange="toggleCheckbox()">B相电流</label>
+    <label><input type="checkbox" id="chkCurrentC" checked onchange="toggleCheckbox()">C相电流</label>
+    <label><input type="checkbox" id="chkPower" checked onchange="toggleCheckbox()">功率</label>
+    <label style="margin-left:16px;"><input type="checkbox" id="chkThreshold" checked onchange="toggleCheckbox()">报警上限</label>
+    <button id="btnExportPng" disabled onclick="exportPng()">导出图片</button>
+    <button id="btnExportCsv" disabled onclick="exportCsv()">导出CSV</button>
+</div>
+
+<div class="chart-grid">
+    <div class="chart-row">
+        <div class="chart-cell">
+            <div class="chart-inner" id="chart1"></div>
+        </div>
+        <div class="chart-cell">
+            <div class="chart-inner" id="chart2"></div>
+        </div>
+    </div>
+    <div class="chart-row">
+        <div class="chart-cell">
+            <div class="chart-inner" id="chart3"></div>
+        </div>
+        <div class="chart-cell">
+            <div class="chart-inner" id="chart4"></div>
+        </div>
+    </div>
+</div>
+
+<div class="empty-state" id="emptyState">请选择转辙机查看曲线</div>
+
+<script>
+// ===== IE7 JSON polyfill =====
+if (typeof JSON === 'undefined' || typeof JSON.parse === 'undefined') {
+    window.JSON = { parse: function(t) { return (new Function('return ' + t))(); } };
+}
+
+// ===== IE8 兼容全局变量 =====
+var charts = {};       // chart1 ~ chart4 四个 Highcharts 实例
+var chartDataCache = null;  // 当前缓存的数据
+var colors = { currentA: '#FF4444', currentB: '#44FF44', currentC: '#4488FF', power: '#FFAA00', thresholdLine: '#FF0000', background: '#1a1a2e', gridLine: '#333355', textColor: '#888888' };
+
+// ===== 创建单个 Highcharts 图表 =====
+function createChart(containerId, title, yAxisTitle, seriesData, thresholdValue, xMax) {
+    var yAxisConfig = {
+        title: { text: yAxisTitle, style: { color: colors.textColor } },
+        min: 0,
+        labels: { style: { color: colors.textColor } },
+        gridLineColor: colors.gridLine,
+        gridLineDashStyle: 'dot'
+    };
+
+    // 添加阈值线
+    if (thresholdValue !== null && thresholdValue !== undefined) {
+        yAxisConfig.plotLines = [{
+            id: 'threshold-line',
+            color: colors.thresholdLine,
+            dashStyle: 'dash',
+            value: thresholdValue,
+            width: 1,
+            label: {
+                text: thresholdValue + ' ' + yAxisTitle,
+                style: { color: colors.thresholdLine, fontSize: '10px' },
+                align: 'right'
+            }
+        }];
+    }
+
+    var chartConfig = {
+        chart: {
+            renderTo: containerId,
+            type: 'spline',
+            backgroundColor: colors.background,
+            animation: false,
+            marginRight: 20
+        },
+        title: {
+            text: title,
+            style: { color: colors.textColor, fontSize: '13px', fontWeight: 'normal' }
+        },
+        xAxis: {
+            title: { text: '时间(秒)', style: { color: colors.textColor } },
+            min: 0,
+            max: xMax || 14,
+            labels: { style: { color: colors.textColor } },
+            gridLineColor: colors.gridLine,
+            gridLineDashStyle: 'dot'
+        },
+        yAxis: yAxisConfig,
+        tooltip: {
+            shared: true,
+            crosshairs: true,
+            valueDecimals: 3,
+            formatter: function() {
+                var s = '<b>' + this.x.toFixed(2) + ' 秒</b>';
+                for (var i = 0; i < this.points.length; i++) {
+                    var pt = this.points[i];
+                    s += '<br/><span style="color:' + pt.series.color + '">■ ' +
+                         pt.series.name + '</span>: ' + pt.y.toFixed(3);
+                }
+                return s;
+            }
+        },
+        legend: {
+            align: 'center',
+            layout: 'horizontal',
+            verticalAlign: 'bottom',
+            borderWidth: 0,
+            itemStyle: { color: colors.textColor, fontSize: '11px' },
+            itemHoverStyle: { color: '#fff' }
+        },
+        plotOptions: {
+            spline: {
+                lineWidth: 1.5,
+                marker: { enabled: false },
+                shadow: false
+            }
+        },
+        credits: { enabled: false },
+        series: seriesData
+    };
+
+    try {
+        var chart = new Highcharts.Chart(chartConfig);
+        return chart;
+    } catch(e) {
+        return null;
+    }
+}
+
+// ===== 加载图表数据（由 C# 调用） =====
+function loadChartData(dataJson) {
+    var data;
+    if (typeof dataJson === 'string') {
+        try { data = JSON.parse(dataJson); } catch(e) { return; }
+    } else {
+        data = dataJson;
+    }
+
+    if (!data) return;
+    chartDataCache = data;
+
+    // 更新颜色配置
+    if (data.colors) { colors = data.colors; }
+
+    // 更新工具栏
+    document.getElementById('btnExportPng').disabled = false;
+    document.getElementById('btnExportCsv').disabled = false;
+    document.getElementById('emptyState').style.display = 'none';
+
+    // 确保图表容器可见
+    var grid = document.querySelector('.chart-grid');
+    if (grid) grid.style.display = 'block';
+
+    var xMax = data.xMax || 14;
+    var thresholdCurrent = data.thresholdCurrent || null;
+    var thresholdPower = data.thresholdPower || null;
+    var label = (data.switchLabel || data.switchId || '') + ' ';
+
+    // 销毁旧图表
+    destroyCharts();
+
+    // === 左上：电流曲线（上一时间） ===
+    if (data.prevEvent) {
+        var series1 = [];
+        if (data.prevEvent.currentA) series1.push({ name: 'A相电流', color: colors.currentA, data: data.prevEvent.currentA, lineWidth: 1.5 });
+        if (data.prevEvent.currentB) series1.push({ name: 'B相电流', color: colors.currentB, data: data.prevEvent.currentB, lineWidth: 1.5 });
+        if (data.prevEvent.currentC) series1.push({ name: 'C相电流', color: colors.currentC, data: data.prevEvent.currentC, lineWidth: 1.5 });
+        charts.chart1 = createChart('chart1',
+            label + '电流曲线 (上一动作: ' + (data.prevEvent.datetime || '') + ')',
+            '电流(A)', series1, thresholdCurrent, xMax);
+    }
+
+    // === 右上：功率曲线（上一时间） ===
+    if (data.prevEvent && data.prevEvent.power) {
+        var series2 = [{ name: '功率', color: colors.power, data: data.prevEvent.power, lineWidth: 1.5 }];
+        charts.chart2 = createChart('chart2',
+            label + '功率曲线 (上一动作: ' + (data.prevEvent.datetime || '') + ')',
+            '功率(KW)', series2, thresholdPower, xMax);
+    }
+
+    // === 左下：电流曲线（当前选中） ===
+    if (data.currentEvent) {
+        var series3 = [];
+        if (data.currentEvent.currentA) series3.push({ name: 'A相电流', color: colors.currentA, data: data.currentEvent.currentA, lineWidth: 1.5, visible: document.getElementById('chkCurrentA').checked });
+        if (data.currentEvent.currentB) series3.push({ name: 'B相电流', color: colors.currentB, data: data.currentEvent.currentB, lineWidth: 1.5, visible: document.getElementById('chkCurrentB').checked });
+        if (data.currentEvent.currentC) series3.push({ name: 'C相电流', color: colors.currentC, data: data.currentEvent.currentC, lineWidth: 1.5, visible: document.getElementById('chkCurrentC').checked });
+        charts.chart3 = createChart('chart3',
+            label + '电流曲线 (当前: ' + (data.currentEvent.datetime || '') + ')',
+            '电流(A)', series3, thresholdCurrent, xMax);
+    }
+
+    // === 右下：功率曲线（当前选中） ===
+    if (data.currentEvent && data.currentEvent.power) {
+        var series4 = [{ name: '功率', color: colors.power, data: data.currentEvent.power, lineWidth: 1.5, visible: document.getElementById('chkPower').checked }];
+        charts.chart4 = createChart('chart4',
+            label + '功率曲线 (当前: ' + (data.currentEvent.datetime || '') + ')',
+            '功率(KW)', series4, thresholdPower, xMax);
+    }
+}
+
+// ===== 复选框切换 =====
+function toggleCheckbox() {
+    var ids = ['chkCurrentA', 'chkCurrentB', 'chkCurrentC', 'chkPower'];
+    var keys = ['currentA', 'currentB', 'currentC', 'power'];
+
+    for (var i = 0; i < ids.length; i++) {
+        var checked = document.getElementById(ids[i]).checked;
+        // 更新 chart3（左下电流图含 A/B/C，右下功率图含 power）
+        if (charts.chart3 && charts.chart3.series[i]) {
+            if (checked) charts.chart3.series[i].show();
+            else charts.chart3.series[i].hide();
+        }
+        if (charts.chart1 && charts.chart1.series[i]) {
+            if (checked) charts.chart1.series[i].show();
+            else charts.chart1.series[i].hide();
+        }
+        // 功率系列在 chart2/chart4（series[0]）
+        if (i === 3) {
+            if (charts.chart2 && charts.chart2.series[0]) {
+                if (checked) charts.chart2.series[0].show();
+                else charts.chart2.series[0].hide();
+            }
+            if (charts.chart4 && charts.chart4.series[0]) {
+                if (checked) charts.chart4.series[0].show();
+                else charts.chart4.series[0].hide();
+            }
+        }
+    }
+
+    // 阈值线切换
+    var showThreshold = document.getElementById('chkThreshold').checked;
+    toggleThreshold(charts.chart1, showThreshold);
+    toggleThreshold(charts.chart3, showThreshold);
+    toggleThreshold(charts.chart2, showThreshold);
+    toggleThreshold(charts.chart4, showThreshold);
+
+    // 通知 C#
+    try { window.external.ToggleSeries('all', String(document.getElementById('chkPower').checked)); } catch(e) {}
+}
+
+// ===== 阈值线显隐 =====
+function toggleThreshold(chart, show) {
+    if (!chart || !chart.yAxis || !chart.yAxis[0]) return;
+    var axis = chart.yAxis[0];
+    if (show) {
+        // 重新添加 plotLine
+        if (axis.options.plotLines && axis.options.plotLines.length > 0) {
+            for (var i = 0; i < axis.options.plotLines.length; i++) {
+                axis.addPlotLine(axis.options.plotLines[i]);
+            }
+        }
+    } else {
+        axis.removePlotLine('threshold-line');
+    }
+}
+
+// ===== 销毁所有图表 =====
+function destroyCharts() {
+    for (var key in charts) {
+        if (charts[key] && charts[key].destroy) {
+            try { charts[key].destroy(); } catch(e) {}
+            charts[key] = null;
+        }
+    }
+}
+
+// ===== 清空图表 =====
+function clearCharts() {
+    destroyCharts();
+    document.getElementById('emptyState').style.display = 'block';
+    document.getElementById('btnExportPng').disabled = true;
+    document.getElementById('btnExportCsv').disabled = true;
+    chartDataCache = null;
+}
+
+// ===== 更新阈值 =====
+function updateThreshold(thresholdJson) {
+    var t;
+    if (typeof thresholdJson === 'string') {
+        try { t = JSON.parse(thresholdJson); } catch(e) { return; }
+    } else {
+        t = thresholdJson;
+    }
+    // 重新加载数据（简单方案）
+    if (chartDataCache) {
+        if (t.current !== undefined) chartDataCache.thresholdCurrent = t.current;
+        if (t.power !== undefined) chartDataCache.thresholdPower = t.power;
+        loadChartData(chartDataCache);
+    }
+}
+
+// ===== 导出 PNG =====
+function exportPng() {
+    // 通过 C# 端 WebBrowser.DrawToBitmap 实现
+    try { window.external.ExportPng(); } catch(e) {}
+}
+
+// ===== 导出 CSV =====
+function exportCsv() {
+    try { window.external.ExportCsv(); } catch(e) {}
+}
+
+// ===== 窗口大小变化自适应 =====
+window.onresize = function() {
+    for (var key in charts) {
+        if (charts[key] && charts[key].reflow) {
+            try { charts[key].reflow(); } catch(e) {}
+        }
+    }
+};
+
+// ===== 初始状态 =====
+function onChartReady() {
+    document.getElementById('emptyState').style.display = 'block';
+}
+// IE8 兼容 attachEvent，降级为直接调用
+if (document.addEventListener) {
+    document.addEventListener('DOMContentLoaded', onChartReady);
+} else if (document.attachEvent) {
+    document.attachEvent('onreadystatechange', function() {
+        if (document.readyState === 'complete') onChartReady();
+    });
+} else {
+    window.onload = onChartReady;
+}
+</script>
+</body>
+</html>
