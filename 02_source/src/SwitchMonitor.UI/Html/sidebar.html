@@ -37,19 +37,151 @@ body {
     border-left: 2px solid #4488FF;
 }
 
-/* 日期下拉框 — IE8 OS 渲染 select，必须用 JS 设 style.color */
-select#dateSelect {
-    width: 100%;
-    padding: 4px 6px;
-    font-size: 12px;
-    font-family: SimSun, sans-serif;
-    background: #ffffff;
-    color: #000000;
-    border: 1px solid #3a3a6e;
+/* ===== 日历式日期选择器 ===== */
+.calendar-container {
+    margin-top: 2px;
 }
-select#dateSelect option {
-    background: #ffffff;
-    color: #000000;
+
+/* 月份导航栏 */
+.cal-header {
+    text-align: center;
+    padding: 3px 0 6px 0;
+    position: relative;
+    height: 20px;
+    line-height: 20px;
+}
+.cal-nav {
+    position: absolute;
+    top: 0;
+    width: 22px;
+    height: 20px;
+    background: #333355;
+    color: #ccc;
+    border: 1px solid #444466;
+    font: 11px SimSun;
+    cursor: pointer;
+    text-align: center;
+    line-height: 18px;
+    padding: 0;
+}
+.cal-nav:hover { background: #444477; color: #fff; }
+#calPrev { left: 0; }
+#calNext { right: 0; }
+.cal-month-year {
+    color: #ddd;
+    font-size: 12px;
+    font-weight: bold;
+    cursor: pointer;
+    padding: 2px 6px;
+}
+.cal-month-year:hover {
+    background: #333355;
+}
+
+/* 星期标题行 */
+.cal-weekdays {
+    overflow: hidden;
+    border-bottom: 1px solid #2a2a4e;
+    padding-bottom: 3px;
+    margin-bottom: 3px;
+}
+.cal-weekdays span {
+    float: left;
+    width: 14.28%;
+    text-align: center;
+    font-size: 10px;
+    color: #666;
+    padding: 2px 0;
+}
+
+/* 日期网格 */
+.cal-grid {
+    overflow: hidden;
+}
+.cal-cell {
+    float: left;
+    width: 14.28%;
+    text-align: center;
+    padding: 4px 0;
+    font-size: 11px;
+    cursor: default;
+    color: #444;
+    font-family: Consolas, monospace;
+}
+.cal-cell.has-data {
+    color: #ddd;
+    cursor: pointer;
+}
+.cal-cell.has-data:hover {
+    background: #333388;
+    color: #fff;
+}
+.cal-cell.selected {
+    background: #3366CC;
+    color: #fff;
+    font-weight: bold;
+}
+.cal-cell.today {
+    color: #FFAA00;
+}
+.cal-cell.today.selected {
+    color: #fff;
+}
+
+/* 月份选择面板 — 3列×4行 */
+.cal-month-cell {
+    float: left;
+    width: 33.33%;
+    text-align: center;
+    padding: 8px 0;
+    font-size: 12px;
+    cursor: pointer;
+    color: #ddd;
+}
+.cal-month-cell:hover {
+    background: #333388;
+    color: #fff;
+}
+.cal-month-cell.selected {
+    background: #3366CC;
+    color: #fff;
+    font-weight: bold;
+}
+.cal-month-cell.no-data {
+    color: #444;
+    cursor: default;
+}
+.cal-month-cell.no-data:hover {
+    background: transparent;
+    color: #444;
+}
+
+/* 年份选择面板 — 3列×4行 */
+.cal-year-cell {
+    float: left;
+    width: 33.33%;
+    text-align: center;
+    padding: 8px 0;
+    font-size: 12px;
+    cursor: pointer;
+    color: #ddd;
+}
+.cal-year-cell:hover {
+    background: #333388;
+    color: #fff;
+}
+.cal-year-cell.selected {
+    background: #3366CC;
+    color: #fff;
+    font-weight: bold;
+}
+.cal-year-cell.no-data {
+    color: #444;
+    cursor: default;
+}
+.cal-year-cell.no-data:hover {
+    background: transparent;
+    color: #444;
 }
 
 /* 时间列表 */
@@ -82,6 +214,7 @@ select#dateSelect option {
     color: #777;
     font-size: 10px;
     padding: 2px 8px;
+    margin-top: 2px;
 }
 
 /* 分割线 */
@@ -99,9 +232,19 @@ select#dateSelect option {
 
 <div class="section">
     <div class="section-title">日期</div>
-    <select id="dateSelect" onchange="onDateSelectChange()">
-        <option>请选择转辙机</option>
-    </select>
+    <div class="calendar-container" id="calendarContainer">
+        <div class="cal-header">
+            <button class="cal-nav" id="calPrev" onclick="calPrevMonth()">◀</button>
+            <span class="cal-month-year" id="calMonthYear" onclick="onHeaderClick()" title="点击选择月份/年份">----年--月</span>
+            <button class="cal-nav" id="calNext" onclick="calNextMonth()">▶</button>
+        </div>
+        <div class="cal-weekdays" id="calWeekdays">
+            <span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span><span>日</span>
+        </div>
+        <div class="cal-grid" id="calendarGrid">
+            <div style="text-align:center;color:#555;padding:10px;">请选择转辙机</div>
+        </div>
+    </div>
     <div class="info-text" id="dateInfo"></div>
 </div>
 
@@ -126,6 +269,25 @@ if (typeof JSON === 'undefined' || typeof JSON.parse === 'undefined') {
 var currentSwitchId = null;
 var currentDate = null;
 var currentTimestamp = null;
+
+// ===== 日历状态 =====
+var allDates = [];         // 全部有数据的日期字符串（降序）
+var allDatesSet = {};      // 快速查找：date → true
+var monthsWithData = {};   // 按年查找有数据的月份：{"2026": {1:true, 2:true, ...}}
+var yearsWithData = {};   // 有数据的年份：{"2026": true, "2025": true}
+var calView = 'day';       // 当前视图：'day' | 'month' | 'year'
+var calYear = 0;           // 当前显示的年份
+var calMonth = 0;          // 当前显示的月份
+var todayStr = '';         // 今天的日期字符串 "yyyy-MM-dd"
+
+// 初始化 todayStr
+(function() {
+    var now = new Date();
+    var y = now.getFullYear();
+    var m = now.getMonth() + 1;
+    var d = now.getDate();
+    todayStr = y + '-' + (m < 10 ? '0' : '') + m + '-' + (d < 10 ? '0' : '') + d;
+})();
 
 // ===== 初始化：加载转辙机列表 =====
 function initSwitchGroups(groupsJson) {
@@ -166,14 +328,16 @@ function selectSwitch(switchId) {
         }
     }
 
-    // 重置日期下拉框（IE8: innerHTML 对 select 只读，用 options.length=0）
-    var sel = document.getElementById('dateSelect');
-    sel.options.length = 0;
-    var opt = document.createElement('option');
-    opt.text = '加载中...';
-    opt.style.color = '#000000';
-    opt.style.backgroundColor = '#ffffff';
-    sel.add(opt);
+    // 重置日历为加载状态
+    allDates = [];
+    allDatesSet = {};
+    monthsWithData = {};
+    yearsWithData = {};
+    calView = 'day';
+    calYear = 0;
+    calMonth = 0;
+    document.getElementById('calendarGrid').innerHTML = '<div style="text-align:center;color:#555;padding:10px;">加载中...</div>';
+    document.getElementById('calMonthYear').innerText = '----年--月';
 
     // 清空时间列表
     document.getElementById('timeList').innerHTML = '<li class="empty-hint">加载中...</li>';
@@ -184,7 +348,7 @@ function selectSwitch(switchId) {
     try { window.external.SelectSwitch(switchId); } catch(e) {}
 }
 
-// ===== 日期下拉框填充 =====
+// ===== 填充日期：C# 调用，datesJson 是日期字符串数组（降序） =====
 function setDates(datesJson) {
     var dates;
     if (typeof datesJson === 'string') {
@@ -193,55 +357,297 @@ function setDates(datesJson) {
         dates = datesJson;
     }
 
-    var sel = document.getElementById('dateSelect');
-    // IE8: innerHTML 对 select 只读，必须用 options.length=0 清空
-    sel.options.length = 0;
+    allDates = dates || [];
+    // 构建快速查找表
+    allDatesSet = {};
+    monthsWithData = {};
+    yearsWithData = {};
+    for (var i = 0; i < allDates.length; i++) {
+        var d = allDates[i];
+        allDatesSet[d] = true;
+        // 解析年月
+        var parts = d.split('-');
+        var y = parseInt(parts[0], 10);
+        var m = parseInt(parts[1], 10);
+        yearsWithData[y] = true;
+        if (!monthsWithData[y]) monthsWithData[y] = {};
+        monthsWithData[y][m] = true;
+    }
 
-    if (!dates || dates.length === 0) {
-        var opt = document.createElement('option');
-        opt.text = '暂无数据';
-        opt.style.color = '#000000';
-        opt.style.backgroundColor = '#ffffff';
-        sel.add(opt);
-        document.getElementById('timeList').innerHTML = '<li class="empty-hint">该转辙机无数据</li>';
+    if (allDates.length === 0) {
+        calYear = 0;
+        calMonth = 0;
+        document.getElementById('calendarGrid').innerHTML = '<div style="text-align:center;color:#555;padding:10px;">暂无数据</div>';
+        document.getElementById('calMonthYear').innerText = '----年--月';
         document.getElementById('dateInfo').innerText = '';
+        document.getElementById('timeList').innerHTML = '<li class="empty-hint">该转辙机无数据</li>';
         return;
     }
 
-    // 填充日期选项，显式设置颜色（IE8 中 body color 会级联进 option）
-    for (var i = 0; i < dates.length; i++) {
-        var opt = document.createElement('option');
-        opt.text = dates[i];
-        opt.value = dates[i];
-        opt.style.color = '#000000';
-        opt.style.backgroundColor = '#ffffff';
-        sel.add(opt);
-    }
+    // 默认显示最新日期的月份（dates[0] 是降序的最大日期）
+    var latestDate = allDates[0];
+    var parts = latestDate.split('-');
+    calYear = parseInt(parts[0], 10);
+    calMonth = parseInt(parts[1], 10);
+    calView = 'day';
 
-    document.getElementById('dateInfo').innerText = '共 ' + dates.length + ' 天数据';
+    renderCalendar();
+    document.getElementById('dateInfo').innerText = '共 ' + allDates.length + ' 天数据';
 }
 
-// ===== C# 通知选中某个日期时调用，同步下拉框选中项 =====
+// ===== C# 通知选中某个日期时调用，同步日历高亮 =====
 function setSelectedDate(date) {
     currentDate = date;
-    var sel = document.getElementById('dateSelect');
-    for (var i = 0; i < sel.options.length; i++) {
-        if (sel.options[i].value === date) {
-            sel.selectedIndex = i;
-            break;
-        }
+    calView = 'day';
+    if (date) {
+        var parts = date.split('-');
+        calYear = parseInt(parts[0], 10);
+        calMonth = parseInt(parts[1], 10);
     }
+    renderCalendar();
     document.getElementById('timeList').innerHTML = '<li class="empty-hint">加载中...</li>';
     document.getElementById('timeInfo').innerText = '';
 }
 
-// ===== 日期下拉框 onchange 事件 =====
-function onDateSelectChange() {
-    var sel = document.getElementById('dateSelect');
-    var date = sel.options[sel.selectedIndex].value;
-    if (!date || date === '请选择转辙机' || date === '加载中...' || date === '暂无数据') return;
-    setSelectedDate(date);
+// ===== 渲染日历（视图分发） =====
+function renderCalendar() {
+    if (calView === 'day')   { renderDayView(); }
+    else if (calView === 'month') { renderMonthView(); }
+    else if (calView === 'year')  { renderYearView(); }
+}
+
+// ===== 日视图：当月日期网格 =====
+function renderDayView() {
+    var grid = document.getElementById('calendarGrid');
+    var header = document.getElementById('calMonthYear');
+    var weekdays = document.getElementById('calWeekdays');
+
+    if (calYear === 0 || calMonth === 0) {
+        header.innerText = '----年--月';
+        header.style.cursor = 'default';
+        weekdays.style.display = 'block';
+        grid.innerHTML = '<div style="text-align:center;color:#555;padding:10px;">暂无数据</div>';
+        return;
+    }
+
+    header.innerText = calYear + '年' + calMonth + '月';
+    header.style.cursor = 'pointer';
+    weekdays.style.display = 'block';
+
+    // 计算当月第一天是星期几（1=周一, 7=周日）
+    var firstDay = new Date(calYear, calMonth - 1, 1);
+    var startDayOfWeek = firstDay.getDay(); // 0=Sunday
+    var startCol = (startDayOfWeek === 0) ? 6 : startDayOfWeek - 1;
+
+    // 当月总天数
+    var daysInMonth = new Date(calYear, calMonth, 0).getDate();
+
+    var html = '';
+    var cellCount = 0;
+
+    // 1号之前的空白格
+    for (var i = 0; i < startCol; i++) {
+        html += '<div class="cal-cell empty"></div>';
+        cellCount++;
+    }
+
+    // 日期格
+    for (var d = 1; d <= daysInMonth; d++) {
+        var dateStr = calYear + '-' +
+            (calMonth < 10 ? '0' : '') + calMonth + '-' +
+            (d < 10 ? '0' : '') + d;
+
+        var hasData = (allDatesSet[dateStr] === true);
+        var isSelected = (dateStr === currentDate);
+        var isToday = (dateStr === todayStr);
+
+        var cls = 'cal-cell';
+        if (hasData) cls += ' has-data';
+        if (isSelected) cls += ' selected';
+        if (isToday && !isSelected) cls += ' today';
+
+        html += '<div class="' + cls + '"';
+        if (hasData) {
+            html += ' data-date="' + dateStr + '"';
+        }
+        html += '>' + d + '</div>';
+        cellCount++;
+    }
+
+    // 填充剩余行（最多6行=42格）
+    while (cellCount < 42) {
+        html += '<div class="cal-cell empty"></div>';
+        cellCount++;
+    }
+
+    grid.innerHTML = html;
+
+    // 对有数据的日期绑定点击事件
+    var cells = grid.getElementsByTagName('div');
+    for (var i = 0; i < cells.length; i++) {
+        var cell = cells[i];
+        if (cell.className.indexOf('has-data') >= 0) {
+            cell.onclick = function() {
+                onDateCellClick(this.getAttribute('data-date'));
+            };
+        }
+    }
+}
+
+// ===== 日视图日期点击 =====
+function onDateCellClick(date) {
+    if (!date) return;
+    currentDate = date;
+    calView = 'day';
+    renderCalendar();
     try { window.external.SelectDate(date); } catch(e) {}
+}
+
+// ===== 月视图：12月份面板（3列×4行） =====
+function renderMonthView() {
+    var grid = document.getElementById('calendarGrid');
+    var header = document.getElementById('calMonthYear');
+    var weekdays = document.getElementById('calWeekdays');
+
+    header.innerText = calYear + '年';
+    header.style.cursor = 'pointer';
+    weekdays.style.display = 'none';
+
+    var html = '';
+    for (var m = 1; m <= 12; m++) {
+        var hasData = (monthsWithData[calYear] && monthsWithData[calYear][m] === true);
+        var isCurrent = (m === calMonth);
+
+        var cls = 'cal-month-cell';
+        if (hasData) cls += ' has-data';
+        else cls += ' no-data';
+        if (isCurrent) cls += ' selected';
+
+        html += '<div class="' + cls + '"';
+        if (hasData) {
+            html += ' data-month="' + m + '"';
+        }
+        html += '>' + m + '月</div>';
+    }
+
+    grid.innerHTML = html;
+
+    // 对有数据的月份绑定点击
+    var cells = grid.getElementsByTagName('div');
+    for (var i = 0; i < cells.length; i++) {
+        var cell = cells[i];
+        if (cell.className.indexOf('has-data') >= 0) {
+            cell.onclick = function() {
+                onMonthCellClick(parseInt(this.getAttribute('data-month'), 10));
+            };
+        }
+    }
+}
+
+// ===== 月份点击：选中月份，回到日视图 =====
+function onMonthCellClick(month) {
+    calMonth = month;
+    calView = 'day';
+    renderCalendar();
+}
+
+// ===== 年视图：年份列表（3列×4行，一次显示12年） =====
+function renderYearView() {
+    var grid = document.getElementById('calendarGrid');
+    var header = document.getElementById('calMonthYear');
+    var weekdays = document.getElementById('calWeekdays');
+
+    // 年份范围：以当前 calYear 为中心，显示12年
+    var startYear = calYear - calYear % 12;
+    var endYear = startYear + 11;
+
+    header.innerText = startYear + ' - ' + endYear;
+    header.style.cursor = 'default';
+    weekdays.style.display = 'none';
+
+    var html = '';
+    for (var y = startYear; y <= endYear; y++) {
+        var hasData = (yearsWithData[y] === true);
+        var isCurrent = (y === calYear);
+
+        var cls = 'cal-year-cell';
+        if (hasData) cls += ' has-data';
+        else cls += ' no-data';
+        if (isCurrent) cls += ' selected';
+
+        html += '<div class="' + cls + '"';
+        if (hasData) {
+            html += ' data-year="' + y + '"';
+        }
+        html += '>' + y + '</div>';
+    }
+
+    grid.innerHTML = html;
+
+    // 对有数据的年份绑定点击
+    var cells = grid.getElementsByTagName('div');
+    for (var i = 0; i < cells.length; i++) {
+        var cell = cells[i];
+        if (cell.className.indexOf('has-data') >= 0) {
+            cell.onclick = function() {
+                onYearCellClick(parseInt(this.getAttribute('data-year'), 10));
+            };
+        }
+    }
+}
+
+// ===== 年份点击：选中年份，进入月视图 =====
+function onYearCellClick(year) {
+    calYear = year;
+    calView = 'month';
+    renderCalendar();
+}
+
+// ===== 标题点击：逐级下钻 day→month→year =====
+function onHeaderClick() {
+    if (calYear === 0) return;
+    if (calView === 'day') {
+        calView = 'month';
+    } else if (calView === 'month') {
+        calView = 'year';
+    } else if (calView === 'year') {
+        // 年视图中再点击回到月视图
+        calView = 'month';
+    }
+    renderCalendar();
+}
+
+// ===== 左右箭头导航（根据视图切换行为） =====
+function calPrevMonth() {
+    if (calYear === 0) return;
+    if (calView === 'day') {
+        // 日视图：上一月
+        calMonth--;
+        if (calMonth < 1) { calMonth = 12; calYear--; }
+    } else if (calView === 'month') {
+        // 月视图：上一年
+        calYear--;
+    } else if (calView === 'year') {
+        // 年视图：上12年
+        calYear -= 12;
+    }
+    renderCalendar();
+}
+
+function calNextMonth() {
+    if (calYear === 0) return;
+    if (calView === 'day') {
+        // 日视图：下一月
+        calMonth++;
+        if (calMonth > 12) { calMonth = 1; calYear++; }
+    } else if (calView === 'month') {
+        // 月视图：下一年
+        calYear++;
+    } else if (calView === 'year') {
+        // 年视图：下12年
+        calYear += 12;
+    }
+    renderCalendar();
 }
 
 // ===== 时间列表更新 =====
@@ -277,7 +683,7 @@ function setTimes(timesJson) {
     var container = document.getElementById('timeContainer');
     var bodyHeight = document.body.clientHeight || document.documentElement.clientHeight;
     var switchSection = document.getElementById('switchList').parentNode;
-    var dateSection = document.getElementById('dateSelect').parentNode;
+    var dateSection = document.getElementById('calendarContainer').parentNode;
     var topHeight = 0;
     if (switchSection) topHeight += switchSection.offsetHeight;
     if (dateSection) topHeight += dateSection.offsetHeight;

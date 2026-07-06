@@ -44,12 +44,10 @@ def parse_dat_file(filepath, file_index, is_second_file=False):
     """Parse a single .dat file, return list of event dicts.
 
     Phase encoding: each switch group uses 2 paired files (N and N+3).
-    - First file (index N): contains phases P, A, B
-      Phase byte3 = N + offset, where offset: 0=Power, 1=A, 2=B
-    - Second file (index N+3): contains phase C only
-      Phase byte3 = N + 3, offset = 3 = C
-    Because byte3 = file_index gives 0 for both P and C files,
-    we use is_second_file to disambiguate.
+    - First file (index N): contains phases C, A, B
+      Phase byte3 = N + offset, where offset: 0=C-current, 1=A-current, 2=B-current
+    - Second file (index N+3): contains Power only
+      Phase byte3 = N + 3, offset = 3 = Power
     """
     events = []
     with open(filepath, 'rb') as f:
@@ -78,11 +76,15 @@ def parse_dat_file(filepath, file_index, is_second_file=False):
         # Phase detection
         phase_byte3 = (flags >> 24) & 0xFF
         if is_second_file:
-            # Second file: always C phase (offset 3)
-            phase_type = 3
+            # Second file: Power (offset 0)
+            phase_type = 0
         else:
-            # First file: offset = byte3 - file_index → 0=Power, 1=A, 2=B
-            phase_type = phase_byte3 - file_index
+            # First file: offset = byte3 - file_index → 0=C-current, 1=A-current, 2=B-current
+            offset = phase_byte3 - file_index
+            if offset == 0:
+                phase_type = 3  # C-current
+            else:
+                phase_type = offset  # 1=A, 2=B
 
         events.append({
             'timestamp': ts,

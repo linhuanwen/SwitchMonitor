@@ -111,6 +111,10 @@ namespace SwitchMonitor.Data
         public string Background { get; set; }
         public string GridLine { get; set; }
         public string TextColor { get; set; }
+        public string RefCurrentA { get; set; }
+        public string RefCurrentB { get; set; }
+        public string RefCurrentC { get; set; }
+        public string RefPower { get; set; }
     }
 
     /// <summary>

@@ -26,8 +26,8 @@ namespace SwitchMonitor.Data
     ///
     /// 相位编码规则（每个转辙机组使用 2 个配对文件 N 和 N+3）：
     /// - 第一个文件 (索引 N): 相位高字节 = N + offset
-    ///   offset 0=功率, 1=A相电流, 2=B相电流
-    /// - 第二个文件 (索引 N+3): 包含 C相电流
+    ///   offset 0=C相电流, 1=A相电流, 2=B相电流
+    /// - 第二个文件 (索引 N+3): 包含功率
     /// </summary>
     internal class CsvDataReader
     {
@@ -69,10 +69,13 @@ namespace SwitchMonitor.Data
         private static int ComputePhaseType(int phase, int fileIndex, bool isSecondFile)
         {
             if (isSecondFile)
-                return 3; // 第二个文件始终是 C 相
+                return 0; // 第二个文件是功率
 
             int highByte = (phase >> 24) & 0xFF;
-            return highByte - fileIndex; // 0=功率, 1=A相, 2=B相
+            int offset = highByte - fileIndex;
+            // offset 0=C相电流, 1=A相电流, 2=B相电流
+            if (offset == 0) return 3; // C相电流
+            return offset; // 1=A相, 2=B相
         }
 
         /// <summary>

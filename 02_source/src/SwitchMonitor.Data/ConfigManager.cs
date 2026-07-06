@@ -104,14 +104,18 @@ namespace SwitchMonitor.Data
                 },
                 ChartColors = new ChartColorsConfig
                 {
-                    CurrentA = "#FF5555",
-                    CurrentB = "#55FF55",
-                    CurrentC = "#5599FF",
-                    Power = "#FFBB33",
+                    CurrentA = "#55FF55",
+                    CurrentB = "#FF5555",
+                    CurrentC = "#CC44CC",
+                    Power = "#55FF55",
                     ThresholdLine = "#FF4444",
-                    Background = "#000000",
-                    GridLine = "#555577",
-                    TextColor = "#CCCCCC"
+                    Background = "#0a0a1e",
+                    GridLine = "#3a3a5a",
+                    TextColor = "#CCCCCC",
+                    RefCurrentA = "#00FFFF",
+                    RefCurrentB = "#FF5555",
+                    RefCurrentC = "#FFFF00",
+                    RefPower = "#FF5555"
                 },
                 Ui = new UiConfig
                 {

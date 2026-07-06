@@ -123,6 +123,318 @@ var detailChart = null;
 var chartColors = {};
 var highchartsReady = (typeof Highcharts !== 'undefined');
 
+// ===== 功率数据坐标变换（与主界面一致） =====
+function transformPowerValue(realValue) {
+    if (realValue <= 0.6) return realValue * 5.0;
+    return 3.0 + (realValue - 0.6);
+}
+function inversePowerValue(displayValue) {
+    if (displayValue <= 3.0) return displayValue / 5.0;
+    return 0.6 + (displayValue - 3.0);
+}
+function transformPowerData(dataArray) {
+    if (!dataArray) return null;
+    var result = [];
+    for (var i = 0; i < dataArray.length; i++) {
+        result.push([dataArray[i][0], transformPowerValue(dataArray[i][1])]);
+    }
+    return result;
+}
+
+// ===== 鼠标拖拽平移 =====
+function setupDetailPanDrag() {
+    if (!detailChart) return;
+    var container = detailChart.container;
+    if (!container) return;
+
+    var isDragging = false;
+    var hasMoved = false;
+    var startClientX = 0, startClientY = 0;
+    var startXMin = 0, startXMax = 0;
+    var startYMin = 0, startYMax = 0;
+
+    var onMouseMove, onMouseUp;
+
+    // 获取容器的绝对位置（兼容 IE8）
+    function getContainerRect() {
+        var left = 0, top = 0;
+        var el = container;
+        while (el) {
+            left += el.offsetLeft || 0;
+            top += el.offsetTop || 0;
+            el = el.offsetParent;
+        }
+        return {
+            left: left,
+            top: top,
+            width: container.offsetWidth || container.clientWidth || 0,
+            height: container.offsetHeight || container.clientHeight || 0
+        };
+    }
+
+    function onMouseDown(e) {
+        e = e || window.event;
+        // 只响应鼠标左键（IE8: button=1, 标准: button=0）
+        var isLeft;
+        if (document.addEventListener) {
+            isLeft = (e.button === 0);
+        } else {
+            // IE8-: attachEvent 模式
+            isLeft = (e.button === 1);
+        }
+        if (!isLeft) return;
+
+        if (!detailChart) return;
+        var xA = detailChart.xAxis[0];
+        var yA = detailChart.yAxis[0];
+        if (!xA || !yA) return;
+
+        var clientX = e.clientX || e.pageX || 0;
+        var clientY = e.clientY || e.pageY || 0;
+
+        // 命中检测：判断鼠标是否在图表容器内
+        var rect = getContainerRect();
+        if (clientX < rect.left || clientX > rect.left + rect.width ||
+            clientY < rect.top || clientY > rect.top + rect.height) return;
+
+        var xExt = xA.getExtremes();
+        var yExt = yA.getExtremes();
+
+        isDragging = true;
+        hasMoved = false;
+        startClientX = clientX;
+        startClientY = clientY;
+        startXMin = xExt.min;
+        startXMax = xExt.max;
+        startYMin = yExt.min;
+        startYMax = yExt.max;
+
+        if (e.preventDefault) e.preventDefault();
+        e.returnValue = false;
+
+        try { container.style.cursor = 'move'; } catch(ex) {}
+
+        // 在 document 上挂载 move/up，确保拖出容器外也能响应
+        if (document.addEventListener) {
+            document.addEventListener('mousemove', onMouseMove, false);
+            document.addEventListener('mouseup', onMouseUp, false);
+        } else if (document.attachEvent) {
+            document.attachEvent('onmousemove', onMouseMove);
+            document.attachEvent('onmouseup', onMouseUp);
+        }
+    }
+
+    onMouseMove = function(e) {
+        if (!isDragging) return;
+        e = e || window.event;
+
+        if (!detailChart) { isDragging = false; return; }
+        var xA = detailChart.xAxis[0];
+        var yA = detailChart.yAxis[0];
+        if (!xA || !yA) { isDragging = false; return; }
+
+        var curX = e.clientX || e.pageX || 0;
+        var curY = e.clientY || e.pageY || 0;
+        var dx = curX - startClientX;
+        var dy = curY - startClientY;
+
+        // 忽略微小移动（区分点击和拖拽）
+        if (!hasMoved && Math.abs(dx) < 3 && Math.abs(dy) < 3) return;
+        hasMoved = true;
+
+        var plotW = detailChart.plotWidth || 1;
+        var plotH = detailChart.plotHeight || 1;
+        var rangeX = startXMax - startXMin;
+        var rangeY = startYMax - startYMin;
+
+        var newXMin = startXMin - dx * rangeX / plotW;
+        var newXMax = startXMax - dx * rangeX / plotW;
+        var newYMin = startYMin + dy * rangeY / plotH;
+        var newYMax = startYMax + dy * rangeY / plotH;
+
+        // 限制不能拖出初始范围
+        var initXMin = detailChart._initXMin || 0;
+        var initXMax = detailChart._initXMax || 14;
+        var initYMin = detailChart._initYMin || 0;
+        var initYMax = detailChart._initYMax || 4;
+
+        if (newXMin < initXMin) { newXMin = initXMin; newXMax = initXMin + rangeX; }
+        if (newXMax > initXMax) { newXMax = initXMax; newXMin = initXMax - rangeX; }
+        if (newYMin < initYMin) { newYMin = initYMin; newYMax = initYMin + rangeY; }
+        if (newYMax > initYMax) { newYMax = initYMax; newYMin = initYMax - rangeY; }
+
+        try {
+            xA.setExtremes(newXMin, newXMax);
+            yA.setExtremes(newYMin, newYMax);
+        } catch(ex) {}
+    };
+
+    onMouseUp = function(e) {
+        isDragging = false;
+        try { container.style.cursor = ''; } catch(ex) {}
+
+        if (document.removeEventListener) {
+            document.removeEventListener('mousemove', onMouseMove, false);
+            document.removeEventListener('mouseup', onMouseUp, false);
+        } else if (document.detachEvent) {
+            document.detachEvent('onmousemove', onMouseMove);
+            document.detachEvent('onmouseup', onMouseUp);
+        }
+    };
+
+    // 移除旧的 mousedown 处理器（挂在 document 上）
+    if (container._panMouseDown) {
+        if (document.removeEventListener) {
+            document.removeEventListener('mousedown', container._panMouseDown, false);
+        } else if (document.detachEvent) {
+            document.detachEvent('onmousedown', container._panMouseDown);
+        }
+    }
+
+    // mousedown 挂在 document 上（而非 container），绕过 IE SVG 事件冒泡问题
+    if (document.addEventListener) {
+        document.addEventListener('mousedown', onMouseDown, false);
+    } else if (document.attachEvent) {
+        document.attachEvent('onmousedown', onMouseDown);
+    }
+
+    container._panMouseDown = onMouseDown;
+}
+
+// ===== 鼠标滚轮缩放 =====
+function setupDetailWheelZoom() {
+    if (!detailChart) return;
+    var container = detailChart.container;
+    if (!container) return;
+
+    var xAxis = detailChart.xAxis[0];
+    var yAxis = detailChart.yAxis[0];
+    if (!xAxis || !yAxis) return;
+
+    // 记录初始范围
+    detailChart._initXMin = xAxis.min || 0;
+    detailChart._initXMax = xAxis.max || 14;
+    detailChart._initYMin = yAxis.min || 0;
+    detailChart._initYMax = yAxis.max || 4;
+
+    // 记录初始刻度配置（setExtremes 后需要恢复，否则刻度线数量/间距会变）
+    detailChart._initXAxisTickInterval = xAxis.options.tickInterval;   // X 轴（可能 undefined，即自动）
+    detailChart._initYAxisTickInterval = yAxis.options.tickInterval;   // 电流 Y 轴（0.5）
+    detailChart._initYAxisTickPositions = yAxis.options.tickPositions; // 功率 Y 轴（自定义刻度数组）
+
+    // 辅助函数：将 extremes 恢复到初始值并还原刻度配置
+    function resetExtremesToInit() {
+        var xA = detailChart.xAxis[0];
+        var yA = detailChart.yAxis[0];
+        if (!xA || !yA) return;
+        try {
+            // 先恢复 X 轴，不立即重绘
+            xA.setExtremes(detailChart._initXMin, detailChart._initXMax, false);
+            if (detailChart._initXAxisTickInterval !== undefined) {
+                xA.update({tickInterval: detailChart._initXAxisTickInterval}, false);
+            }
+            // 再恢复 Y 轴，触发重绘
+            yA.setExtremes(detailChart._initYMin, detailChart._initYMax, false);
+            if (detailChart._initYAxisTickPositions !== undefined) {
+                yA.update({tickPositions: detailChart._initYAxisTickPositions}, false);
+            } else if (detailChart._initYAxisTickInterval !== undefined) {
+                yA.update({tickInterval: detailChart._initYAxisTickInterval}, false);
+            }
+            detailChart.redraw();
+        } catch(ex) {}
+    }
+    detailChart._resetExtremesToInit = resetExtremesToInit;
+
+    function onWheel(e) {
+        e = e || window.event;
+        if (e.preventDefault) e.preventDefault();
+        e.returnValue = false;
+
+        var delta = 0;
+        if (e.wheelDelta) {
+            delta = e.wheelDelta / 120;
+        } else if (e.detail) {
+            delta = -e.detail / 3;
+        }
+        if (delta === 0) return;
+
+        if (!detailChart) return;
+        var xA = detailChart.xAxis[0];
+        var yA = detailChart.yAxis[0];
+        if (!xA || !yA) return;
+
+        var xExt = xA.getExtremes();
+        var yExt = yA.getExtremes();
+        // 使用精确倒数，确保放大再缩小后范围不变：0.75 * (1/0.75) = 1
+        var zoomFactor = (delta > 0) ? 0.75 : (1 / 0.75);
+
+        // 以当前可视区域中心为缩放原点
+        var xCenter = (xExt.min + xExt.max) / 2;
+        var xHalf = (xExt.max - xExt.min) / 2 * zoomFactor;
+        var yCenter = (yExt.min + yExt.max) / 2;
+        var yHalf = (yExt.max - yExt.min) / 2 * zoomFactor;
+
+        var newXMin = xCenter - xHalf;
+        var newXMax = xCenter + xHalf;
+        var newYMin = yCenter - yHalf;
+        var newYMax = yCenter + yHalf;
+
+        var xSnapped = false;
+        var ySnapped = false;
+
+        // 缩小不能超过初始范围
+        if (zoomFactor > 1) {
+            if (newXMin <= detailChart._initXMin && newXMax >= detailChart._initXMax) {
+                newXMin = detailChart._initXMin;
+                newXMax = detailChart._initXMax;
+                xSnapped = true;
+            } else {
+                newXMin = Math.max(detailChart._initXMin, newXMin);
+                newXMax = Math.min(detailChart._initXMax, newXMax);
+            }
+            if (newYMin <= detailChart._initYMin && newYMax >= detailChart._initYMax) {
+                newYMin = detailChart._initYMin;
+                newYMax = detailChart._initYMax;
+                ySnapped = true;
+            } else {
+                newYMin = Math.max(detailChart._initYMin, newYMin);
+                newYMax = Math.min(detailChart._initYMax, newYMax);
+            }
+        }
+
+        // 如果已缩回初始范围，走完整恢复流程（含刻度配置恢复）
+        if (xSnapped && ySnapped) {
+            resetExtremesToInit();
+        } else {
+            // 仍在缩放中，X 轴先设不重绘，Y 轴触发重绘
+            xA.setExtremes(newXMin, newXMax, false);
+            yA.setExtremes(newYMin, newYMax, true);
+        }
+    }
+
+    // 移除旧的滚轮事件处理（避免重复挂载）
+    if (container._wheelHandler) {
+        if (container.removeEventListener) {
+            container.removeEventListener('mousewheel', container._wheelHandler, false);
+            container.removeEventListener('wheel', container._wheelHandler, false);
+            container.removeEventListener('DOMMouseScroll', container._wheelHandler, false);
+        } else if (container.detachEvent) {
+            container.detachEvent('onmousewheel', container._wheelHandler);
+        }
+    }
+
+    // 兼容 IE8+
+    if (container.addEventListener) {
+        container.addEventListener('mousewheel', onWheel, false);
+        container.addEventListener('wheel', onWheel, false);
+        container.addEventListener('DOMMouseScroll', onWheel, false);
+    } else if (container.attachEvent) {
+        container.attachEvent('onmousewheel', onWheel);
+    }
+
+    container._wheelHandler = onWheel;
+}
+
 // ===== 初始化图表（由 C# 调用） =====
 function initChart(dataJson) {
     if (!highchartsReady) {
@@ -156,26 +468,28 @@ function initChart(dataJson) {
 
     document.getElementById('chartTitle').innerHTML = data.title || '曲线详情';
 
-    // 计算数据最大值以确定刻度间隔
-    var dataMax = 0;
-    if (data.seriesData) {
-        for (var i = 0; i < data.seriesData.length; i++) {
-            var pts = data.seriesData[i].data;
-            if (!pts) continue;
-            for (var j = 0; j < pts.length; j++) {
-                var v = pts[j][1];
-                if (v > dataMax) dataMax = v;
+    var yAxisType = data.yAxisType || 'current';
+    var isPower = (yAxisType === 'power');
+
+    // 如果是功率类型，变换数据
+    var seriesData = data.seriesData || [];
+    if (isPower) {
+        for (var i = 0; i < seriesData.length; i++) {
+            if (seriesData[i].data) {
+                seriesData[i].data = transformPowerData(seriesData[i].data);
             }
         }
     }
 
-    // 根据 Y 轴类型确定刻度间隔
-    var tickInterval;
-    var yAxisType = data.yAxisType || 'current';
-    if (yAxisType === 'current') {
-        tickInterval = 0.5;
-    } else {
-        tickInterval = (dataMax > 1.0) ? 2.0 : 0.2;
+    // 计算数据最大值（变换后的显示坐标）
+    var dataMax = 0;
+    for (var j = 0; j < seriesData.length; j++) {
+        var pts = seriesData[j].data;
+        if (!pts) continue;
+        for (var k = 0; k < pts.length; k++) {
+            var v = pts[k][1];
+            if (v > dataMax) dataMax = v;
+        }
     }
 
     var yAxisConfig = {
@@ -186,13 +500,47 @@ function initChart(dataJson) {
         gridLineDashStyle: 'dot'
     };
 
-    // 添加阈值线
+    if (isPower) {
+        // 功率轴：用变换后的坐标，自定义刻度标签
+        var yMaxDisplay;
+        if (dataMax <= 3.0) {
+            yMaxDisplay = 3.0;
+        } else {
+            yMaxDisplay = Math.ceil(dataMax);
+        }
+        if (yMaxDisplay < 5.0) yMaxDisplay = 5.0;
+
+        var ticks = [];
+        for (var t = 0; t <= yMaxDisplay + 0.001; t += 1.0) {
+            ticks.push(Math.round(t * 100) / 100);
+        }
+
+        yAxisConfig.max = yMaxDisplay;
+        yAxisConfig.tickPositions = ticks;
+        yAxisConfig.labels = {
+            style: { color: chartColors.textColor },
+            formatter: function() {
+                var realVal = inversePowerValue(this.value);
+                if (realVal < 0.01) return '0';
+                return realVal.toFixed(1);
+            }
+        };
+        yAxisConfig.endOnTick = false;
+    } else {
+        // 电流轴：固定 0~4A，步长 0.5
+        yAxisConfig.max = 4.0;
+        yAxisConfig.tickInterval = 0.5;
+        yAxisConfig.endOnTick = false;
+    }
+
+    // 添加阈值线（功率阈值需变换到显示坐标）
     if (data.thresholdValue !== null && data.thresholdValue !== undefined) {
+        var thresholdDisplay = isPower ? transformPowerValue(data.thresholdValue) : data.thresholdValue;
         yAxisConfig.plotLines = [{
             id: 'threshold-line',
             color: chartColors.thresholdLine || '#FF4444',
             dashStyle: 'dash',
-            value: data.thresholdValue,
+            value: thresholdDisplay,
             width: 1,
             label: {
                 text: data.thresholdValue + ' ' + (data.yAxisTitle || ''),
@@ -209,8 +557,7 @@ function initChart(dataJson) {
             backgroundColor: chartColors.background || '#000000',
             animation: false,
             marginRight: 30,
-            marginBottom: 40,
-            zoomType: 'xy'
+            marginBottom: 40
         },
         title: {
             text: data.title || '',
@@ -233,8 +580,12 @@ function initChart(dataJson) {
                 var s = '<b>' + this.x.toFixed(2) + ' 秒</b>';
                 for (var i = 0; i < this.points.length; i++) {
                     var pt = this.points[i];
+                    var displayY = pt.y;
+                    if (isPower) {
+                        displayY = inversePowerValue(pt.y);
+                    }
                     s += '<br/><span style="color:' + pt.series.color + '">■ ' +
-                         pt.series.name + '</span>: ' + pt.y.toFixed(3);
+                         pt.series.name + '</span>: ' + displayY.toFixed(3);
                 }
                 return s;
             }
@@ -255,18 +606,15 @@ function initChart(dataJson) {
             }
         },
         credits: { enabled: false },
-        series: data.seriesData || []
+        series: seriesData
     };
 
     try {
         detailChart = new Highcharts.Chart(chartConfig);
 
-        if (detailChart && detailChart.yAxis && detailChart.yAxis[0]) {
-            try {
-                detailChart.yAxis[0].options.tickInterval = tickInterval;
-                detailChart.yAxis[0].isDirty = true;
-            } catch(e2) {}
-        }
+        // 设置鼠标滚轮缩放和拖拽平移
+        setupDetailWheelZoom();
+        setupDetailPanDrag();
     } catch(e) {
         document.getElementById('detailChart').innerHTML = '<div class="err-msg">Chart creation failed: ' + (e.message || e) + '</div>';
     }
@@ -274,10 +622,13 @@ function initChart(dataJson) {
 
 // ===== 重置缩放 =====
 function resetZoom() {
-    if (detailChart && detailChart.xAxis && detailChart.xAxis[0]) {
+    // 优先使用完整恢复流程（会同时恢复刻度配置）
+    if (detailChart && detailChart._resetExtremesToInit) {
+        try { detailChart._resetExtremesToInit(); } catch(e) {}
+    } else if (detailChart && detailChart.xAxis && detailChart.xAxis[0]) {
         try {
-            detailChart.xAxis[0].setExtremes(null, null);
-            detailChart.yAxis[0].setExtremes(null, null);
+            detailChart.xAxis[0].setExtremes(detailChart._initXMin, detailChart._initXMax);
+            detailChart.yAxis[0].setExtremes(detailChart._initYMin, detailChart._initYMax);
         } catch(e) {}
     }
 }
