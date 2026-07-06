@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<meta http-equiv="X-UA-Compatible" content="IE=8">
+<style>
+* { margin: 0; padding: 0; }
+html, body {
+    width: 100%;
+    height: 100%;
+    background: #000000;
+    color: #CCCCCC;
+    font: 12px SimSun, sans-serif;
+    overflow: hidden;
+}
+
+/* 工具栏 */
+.toolbar {
+    background: #333333;
+    padding: 6px 12px;
+    border-bottom: 1px solid #555555;
+    height: 26px;
+    line-height: 26px;
+}
+.toolbar span {
+    color: #BBBBBB;
+    font-size: 13px;
+    font-weight: bold;
+}
+.toolbar button {
+    float: right;
+    margin-left: 8px;
+    padding: 2px 12px;
+    background: #556677;
+    color: #DDDDDD;
+    border: 1px solid #667788;
+    font: 12px SimSun;
+    cursor: pointer;
+}
+.toolbar button:hover { background: #667788; }
+
+/* 图表容器 */
+.chart-container {
+    position: absolute;
+    top: 38px;
+    left: 0;
+    right: 0;
+    bottom: 0;
+}
+
+/* 错误提示 */
+.err-msg {
+    color: #FF4444;
+    font-size: 12px;
+    text-align: center;
+    padding: 200px 20px;
+}
+</style>
+</head>
+<body>
+
+<div class="toolbar">
+    <span id="chartTitle">曲线详情</span>
+    <button onclick="closeWindow()">关闭</button>
+    <button onclick="resetZoom()">重置缩放</button>
+</div>
+
+<div class="chart-container" id="detailChart"></div>
+
+<script>
+// ===== 显示错误 =====
+window.onerror = function(msg, url, line) {
+    var el = document.getElementById('detailChart');
+    if (el) el.innerHTML = '<div class="err-msg">JS Error: ' + msg + ' (line ' + line + ')</div>';
+    return true;
+};
+
+// ===== IE7/IE8 JSON polyfill =====
+if (typeof JSON === 'undefined') {
+    window.JSON = {
+        parse: function(t) { return (new Function('return ' + t))(); },
+        stringify: function(o) {
+            if (typeof o === 'string') return '"' + o.replace(/\\/g,'\\\\').replace(/"/g,'\\"').replace(/\n/g,'\\n') + '"';
+            if (typeof o === 'number' || typeof o === 'boolean') return '' + o;
+            if (o === null || o === undefined) return 'null';
+            if (o instanceof Array) {
+                var a = [];
+                for (var i = 0; i < o.length; i++) { a.push(JSON.stringify(o[i])); }
+                return '[' + a.join(',') + ']';
+            }
+            var s = '{'; var first = true;
+            for (var k in o) {
+                if (!o.hasOwnProperty || o.hasOwnProperty(k)) {
+                    if (!first) s += ','; first = false;
+                    s += '"' + k + '":' + JSON.stringify(o[k]);
+                }
+            }
+            s += '}'; return s;
+        }
+    };
+} else if (typeof JSON.stringify === 'undefined') {
+    JSON.stringify = function(o) {
+        if (typeof o === 'string') return '"' + o.replace(/\\/g,'\\\\').replace(/"/g,'\\"') + '"';
+        if (typeof o === 'number' || typeof o === 'boolean') return '' + o;
+        if (o === null || o === undefined) return 'null';
+        if (o instanceof Array) {
+            var a = [];
+            for (var i = 0; i < o.length; i++) { a.push(JSON.stringify(o[i])); }
+            return '[' + a.join(',') + ']';
+        }
+        var s = '{'; var first = true;
+        for (var k in o) {
+            if (!o.hasOwnProperty || o.hasOwnProperty(k)) {
+                if (!first) s += ','; first = false;
+                s += '"' + k + '":' + JSON.stringify(o[k]);
+            }
+        }
+        s += '}'; return s;
+    };
+}
+
+var detailChart = null;
+var chartColors = {};
+var highchartsReady = (typeof Highcharts !== 'undefined');
+
+// ===== 初始化图表（由 C# 调用） =====
+function initChart(dataJson) {
+    if (!highchartsReady) {
+        document.getElementById('detailChart').innerHTML = '<div class="err-msg">Highcharts library not loaded!</div>';
+        return;
+    }
+
+    var data;
+    if (typeof dataJson === 'string') {
+        try { data = JSON.parse(dataJson); } catch(e) {
+            document.getElementById('detailChart').innerHTML = '<div class="err-msg">JSON parse error: ' + (e.message || e) + '</div>';
+            return;
+        }
+    } else {
+        data = dataJson;
+    }
+
+    if (!data) return;
+
+    // 保存颜色配置
+    if (data.colors) {
+        chartColors = data.colors;
+    } else {
+        chartColors = {
+            currentA: '#FF5555', currentB: '#55FF55', currentC: '#5599FF',
+            power: '#FFBB33', thresholdLine: '#FF4444',
+            background: '#000000', gridLine: '#555577',
+            textColor: '#CCCCCC'
+        };
+    }
+
+    document.getElementById('chartTitle').innerHTML = data.title || '曲线详情';
+
+    // 计算数据最大值以确定刻度间隔
+    var dataMax = 0;
+    if (data.seriesData) {
+        for (var i = 0; i < data.seriesData.length; i++) {
+            var pts = data.seriesData[i].data;
+            if (!pts) continue;
+            for (var j = 0; j < pts.length; j++) {
+                var v = pts[j][1];
+                if (v > dataMax) dataMax = v;
+            }
+        }
+    }
+
+    // 根据 Y 轴类型确定刻度间隔
+    var tickInterval;
+    var yAxisType = data.yAxisType || 'current';
+    if (yAxisType === 'current') {
+        tickInterval = 0.5;
+    } else {
+        tickInterval = (dataMax > 1.0) ? 2.0 : 0.2;
+    }
+
+    var yAxisConfig = {
+        title: { text: data.yAxisTitle || '', style: { color: chartColors.textColor } },
+        min: 0,
+        labels: { style: { color: chartColors.textColor } },
+        gridLineColor: chartColors.gridLine || '#555577',
+        gridLineDashStyle: 'dot'
+    };
+
+    // 添加阈值线
+    if (data.thresholdValue !== null && data.thresholdValue !== undefined) {
+        yAxisConfig.plotLines = [{
+            id: 'threshold-line',
+            color: chartColors.thresholdLine || '#FF4444',
+            dashStyle: 'dash',
+            value: data.thresholdValue,
+            width: 1,
+            label: {
+                text: data.thresholdValue + ' ' + (data.yAxisTitle || ''),
+                style: { color: chartColors.thresholdLine || '#FF4444', fontSize: '10px' },
+                align: 'right'
+            }
+        }];
+    }
+
+    var chartConfig = {
+        chart: {
+            renderTo: 'detailChart',
+            type: 'spline',
+            backgroundColor: chartColors.background || '#000000',
+            animation: false,
+            marginRight: 30,
+            marginBottom: 40,
+            zoomType: 'xy'
+        },
+        title: {
+            text: data.title || '',
+            style: { color: '#FFFFFF', fontSize: '14px', fontWeight: 'bold' }
+        },
+        xAxis: {
+            title: { text: '时间(秒)', style: { color: chartColors.textColor } },
+            min: 0,
+            max: data.xMax || 14,
+            labels: { style: { color: chartColors.textColor } },
+            gridLineColor: chartColors.gridLine || '#555577',
+            gridLineDashStyle: 'dot'
+        },
+        yAxis: yAxisConfig,
+        tooltip: {
+            shared: true,
+            crosshairs: true,
+            valueDecimals: 3,
+            formatter: function() {
+                var s = '<b>' + this.x.toFixed(2) + ' 秒</b>';
+                for (var i = 0; i < this.points.length; i++) {
+                    var pt = this.points[i];
+                    s += '<br/><span style="color:' + pt.series.color + '">■ ' +
+                         pt.series.name + '</span>: ' + pt.y.toFixed(3);
+                }
+                return s;
+            }
+        },
+        legend: {
+            align: 'center',
+            layout: 'horizontal',
+            verticalAlign: 'bottom',
+            borderWidth: 0,
+            itemStyle: { color: chartColors.textColor, fontSize: '11px' },
+            itemHoverStyle: { color: '#FFFFFF' }
+        },
+        plotOptions: {
+            spline: {
+                lineWidth: 2.5,
+                marker: { enabled: false },
+                shadow: false
+            }
+        },
+        credits: { enabled: false },
+        series: data.seriesData || []
+    };
+
+    try {
+        detailChart = new Highcharts.Chart(chartConfig);
+
+        if (detailChart && detailChart.yAxis && detailChart.yAxis[0]) {
+            try {
+                detailChart.yAxis[0].options.tickInterval = tickInterval;
+                detailChart.yAxis[0].isDirty = true;
+            } catch(e2) {}
+        }
+    } catch(e) {
+        document.getElementById('detailChart').innerHTML = '<div class="err-msg">Chart creation failed: ' + (e.message || e) + '</div>';
+    }
+}
+
+// ===== 重置缩放 =====
+function resetZoom() {
+    if (detailChart && detailChart.xAxis && detailChart.xAxis[0]) {
+        try {
+            detailChart.xAxis[0].setExtremes(null, null);
+            detailChart.yAxis[0].setExtremes(null, null);
+        } catch(e) {}
+    }
+}
+
+// ===== 关闭窗口 =====
+function closeWindow() {
+    try { window.external.CloseWindow(); } catch(e) {}
+}
+
+// ===== 窗口大小变化 =====
+window.onresize = function() {
+    if (detailChart && detailChart.reflow) {
+        try { detailChart.reflow(); } catch(e) {}
+    }
+};
+</script>
+</body>
+</html>

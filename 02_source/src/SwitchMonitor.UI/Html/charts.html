@@ -5,25 +5,29 @@
 <meta http-equiv="X-UA-Compatible" content="IE=8">
 <style>
 * { margin: 0; padding: 0; }
-body {
-    background: #1a1a2e;
-    color: #e0e0e0;
+html, body {
+    width: 100%;
+    height: 100%;
+    background: #0a0a1e;
+    color: #dddddd;
     font: 12px SimSun, sans-serif;
     overflow: hidden;
 }
 
 /* 工具栏 */
 .toolbar {
-    background: #222240;
+    background: #1a1a3a;
     padding: 4px 10px;
-    border-bottom: 1px solid #2a2a4e;
+    border-bottom: 1px solid #3a3a6e;
     height: 28px;
     line-height: 28px;
+    position: relative;
+    z-index: 10;
 }
 .toolbar label {
     margin-right: 14px;
     cursor: pointer;
-    color: #aaa;
+    color: #cccccc;
     font-size: 12px;
 }
 .toolbar input[type="checkbox"] { margin-right: 3px; vertical-align: middle; }
@@ -31,29 +35,34 @@ body {
     float: right;
     margin-left: 8px;
     padding: 2px 10px;
-    background: #3a3a5e;
-    color: #ccc;
-    border: 1px solid #555;
+    background: #444466;
+    color: #dddddd;
+    border: 1px solid #666688;
     font: 12px SimSun;
     cursor: pointer;
 }
-.toolbar button:hover { background: #4a4a7e; }
-.toolbar button:disabled { color: #555; cursor: default; }
+.toolbar button:hover { background: #555588; }
+.toolbar button:disabled { color: #666666; cursor: default; }
 
-/* 图表网格 */
+/* 图表网格 - IE8 需要 overflow:hidden 防止 float 高度塌陷 */
 .chart-grid {
     position: absolute;
     top: 36px;
     left: 0;
     right: 0;
     bottom: 0;
+    overflow: hidden;
 }
-.chart-row { height: 50%; width: 100%; }
+.chart-row {
+    width: 100%;
+    height: 50%;
+    overflow: hidden;  /* IE8: 防止 float 子元素高度塌陷 */
+}
 .chart-cell {
     width: 50%;
     height: 100%;
     float: left;
-    box-sizing: border-box;
+    overflow: hidden;
 }
 .chart-inner {
     width: 100%;
@@ -65,14 +74,36 @@ body {
     position: absolute;
     top: 50%;
     left: 50%;
-    transform: translate(-50%, -50%);
-    color: #555;
-    font-size: 14px;
+    margin-left: -150px;
+    margin-top: -30px;
+    width: 300px;
     text-align: center;
+    z-index: 5;
+}
+.empty-state .main-msg {
+    color: #FFAA00;
+    font-size: 16px;
+    font-weight: bold;
+}
+.empty-state .sub-msg {
+    color: #888888;
+    font-size: 13px;
+    margin-top: 6px;
+}
+.empty-state .err-msg {
+    color: #FF4444;
+    font-size: 12px;
+    margin-top: 8px;
+    padding: 4px 8px;
+    background: #330000;
+    border: 1px solid #660000;
 }
 </style>
 </head>
 <body>
+
+<!-- 诊断：不依赖任何 JS/CSS 的渲染标记 -->
+<div style="background:#FF0000;color:#FFFFFF;font-size:14px;padding:2px 8px;position:absolute;top:0;right:0;z-index:9999;" id="_renderTest">RENDER</div>
 
 <div class="toolbar" id="toolbar">
     <label><input type="checkbox" id="chkCurrentA" checked onchange="toggleCheckbox()">A相电流</label>
@@ -80,11 +111,14 @@ body {
     <label><input type="checkbox" id="chkCurrentC" checked onchange="toggleCheckbox()">C相电流</label>
     <label><input type="checkbox" id="chkPower" checked onchange="toggleCheckbox()">功率</label>
     <label style="margin-left:16px;"><input type="checkbox" id="chkThreshold" checked onchange="toggleCheckbox()">报警上限</label>
+    <label style="margin-left:16px;"><input type="checkbox" id="chkReference" onchange="toggleReference()">参考曲线</label>
+    <button id="btnSetReference" disabled onclick="setReferenceCurve()">设定参考曲线</button>
+    <button id="btnResetZoom" disabled onclick="resetAllZoom()">重置缩放</button>
     <button id="btnExportPng" disabled onclick="exportPng()">导出图片</button>
     <button id="btnExportCsv" disabled onclick="exportCsv()">导出CSV</button>
 </div>
 
-<div class="chart-grid">
+<div class="chart-grid" id="chartGrid">
     <div class="chart-row">
         <div class="chart-cell">
             <div class="chart-inner" id="chart1"></div>
@@ -103,21 +137,103 @@ body {
     </div>
 </div>
 
-<div class="empty-state" id="emptyState">请选择转辙机查看曲线</div>
+<div class="empty-state" id="emptyState">
+    <div class="main-msg">请选择转辙机查看曲线</div>
+    <div class="sub-msg">★ Build 2026-07-06-v12 ★ | <span id="diagStatus">等待数据</span></div>
+    <div class="err-msg" id="errMsg" style="display:none;"></div>
+</div>
 
 <script>
-// ===== IE7 JSON polyfill =====
-if (typeof JSON === 'undefined' || typeof JSON.parse === 'undefined') {
-    window.JSON = { parse: function(t) { return (new Function('return ' + t))(); } };
+// ===== 显示诊断错误 =====
+function showError(msg) {
+    var el = document.getElementById('errMsg');
+    if (el) {
+        el.style.display = 'block';
+        el.innerText = 'JS Error: ' + msg;
+    }
 }
 
-// ===== IE8 兼容全局变量 =====
-var charts = {};       // chart1 ~ chart4 四个 Highcharts 实例
-var chartDataCache = null;  // 当前缓存的数据
-var colors = { currentA: '#FF4444', currentB: '#44FF44', currentC: '#4488FF', power: '#FFAA00', thresholdLine: '#FF0000', background: '#1a1a2e', gridLine: '#333355', textColor: '#888888' };
+// ===== 全局错误捕获 =====
+window.onerror = function(msg, url, line) {
+    showError(msg + ' (line ' + line + ')');
+    return true;
+};
+
+// ===== IE7/IE8 JSON 兼容层（完整版：parse + stringify） =====
+if (typeof JSON === 'undefined') {
+    window.JSON = {
+        parse: function(t) { return (new Function('return ' + t))(); },
+        stringify: function(o) {
+            if (typeof o === 'string') return '"' + o.replace(/\\/g,'\\\\').replace(/"/g,'\\"').replace(/\n/g,'\\n') + '"';
+            if (typeof o === 'number' || typeof o === 'boolean') return '' + o;
+            if (o === null || o === undefined) return 'null';
+            if (o instanceof Array) {
+                var a = [];
+                for (var i = 0; i < o.length; i++) { a.push(JSON.stringify(o[i])); }
+                return '[' + a.join(',') + ']';
+            }
+            var s = '{'; var first = true;
+            for (var k in o) {
+                if (!o.hasOwnProperty || o.hasOwnProperty(k)) {
+                    if (!first) s += ','; first = false;
+                    s += '"' + k + '":' + JSON.stringify(o[k]);
+                }
+            }
+            s += '}'; return s;
+        }
+    };
+} else {
+    // IE8 原生 JSON 存在但可能缺少 stringify（极少情况）
+    if (typeof JSON.stringify === 'undefined') {
+        JSON.stringify = function(o) {
+            if (typeof o === 'string') return '"' + o.replace(/\\/g,'\\\\').replace(/"/g,'\\"') + '"';
+            if (typeof o === 'number' || typeof o === 'boolean') return '' + o;
+            if (o === null || o === undefined) return 'null';
+            if (o instanceof Array) {
+                var a = [];
+                for (var i = 0; i < o.length; i++) { a.push(JSON.stringify(o[i])); }
+                return '[' + a.join(',') + ']';
+            }
+            var s = '{'; var first = true;
+            for (var k in o) {
+                if (!o.hasOwnProperty || o.hasOwnProperty(k)) {
+                    if (!first) s += ','; first = false;
+                    s += '"' + k + '":' + JSON.stringify(o[k]);
+                }
+            }
+            s += '}'; return s;
+        };
+    }
+}
+
+// ===== 全局变量 =====
+var charts = {};
+var chartDataCache = null;
+var referenceCurveData = null;
+var colors = {
+    currentA: '#FF5555', currentB: '#55FF55', currentC: '#5599FF',
+    power: '#FFBB33', thresholdLine: '#FF4444',
+    background: '#000000', gridLine: '#555577', textColor: '#CCCCCC',
+    refCurrentA: '#FF8888', refCurrentB: '#88FF88', refCurrentC: '#88BBFF', refPower: '#FFCC66'
+};
+
+// ===== 诊断：检查 Highcharts 是否可用 =====
+var highchartsReady = (typeof Highcharts !== 'undefined');
 
 // ===== 创建单个 Highcharts 图表 =====
 function createChart(containerId, title, yAxisTitle, seriesData, thresholdValue, xMax) {
+    if (!highchartsReady) {
+        showError('Highcharts library not loaded!');
+        return null;
+    }
+
+    // 检查容器是否有尺寸
+    var container = document.getElementById(containerId);
+    if (!container) {
+        showError('Container ' + containerId + ' not found!');
+        return null;
+    }
+
     var yAxisConfig = {
         title: { text: yAxisTitle, style: { color: colors.textColor } },
         min: 0,
@@ -125,6 +241,23 @@ function createChart(containerId, title, yAxisTitle, seriesData, thresholdValue,
         gridLineColor: colors.gridLine,
         gridLineDashStyle: 'dot'
     };
+
+    // 根据 yAxisTitle 确定刻度间隔
+    var tickInterval = 0.5;
+    if (yAxisTitle.indexOf('KW') >= 0 || yAxisTitle.indexOf('功率') >= 0) {
+        tickInterval = 0.2;
+        var maxVal = 0;
+        if (seriesData) {
+            for (var si = 0; si < seriesData.length; si++) {
+                var pts = seriesData[si].data;
+                if (!pts) continue;
+                for (var pj = 0; pj < pts.length; pj++) {
+                    if (pts[pj][1] > maxVal) maxVal = pts[pj][1];
+                }
+            }
+        }
+        if (maxVal > 1.0) tickInterval = 2.0;
+    }
 
     // 添加阈值线
     if (thresholdValue !== null && thresholdValue !== undefined) {
@@ -148,11 +281,19 @@ function createChart(containerId, title, yAxisTitle, seriesData, thresholdValue,
             type: 'spline',
             backgroundColor: colors.background,
             animation: false,
-            marginRight: 20
+            marginRight: 20,
+            zoomType: 'xy',
+            events: {
+                selection: function(e) {
+                    if (e.xAxis && e.yAxis) {
+                        document.getElementById('btnResetZoom').disabled = false;
+                    }
+                }
+            }
         },
         title: {
             text: title,
-            style: { color: colors.textColor, fontSize: '13px', fontWeight: 'normal' }
+            style: { color: '#FFFFFF', fontSize: '13px', fontWeight: 'bold' }
         },
         xAxis: {
             title: { text: '时间(秒)', style: { color: colors.textColor } },
@@ -183,7 +324,7 @@ function createChart(containerId, title, yAxisTitle, seriesData, thresholdValue,
             verticalAlign: 'bottom',
             borderWidth: 0,
             itemStyle: { color: colors.textColor, fontSize: '11px' },
-            itemHoverStyle: { color: '#fff' }
+            itemHoverStyle: { color: '#ffffff' }
         },
         plotOptions: {
             spline: {
@@ -198,17 +339,114 @@ function createChart(containerId, title, yAxisTitle, seriesData, thresholdValue,
 
     try {
         var chart = new Highcharts.Chart(chartConfig);
+
+        // 设置 tickInterval
+        if (chart && chart.yAxis && chart.yAxis[0]) {
+            try {
+                chart.yAxis[0].options.tickInterval = tickInterval;
+                chart.yAxis[0].isDirty = true;
+            } catch(e3) {}
+        }
+
         return chart;
     } catch(e) {
+        showError('createChart failed for ' + containerId + ': ' + (e.message || e));
         return null;
     }
 }
 
-// ===== 加载图表数据（由 C# 调用） =====
+// ===== 双击检测 =====
+function setupDblClick() {
+    for (var key in charts) {
+        if (!charts[key]) continue;
+        (function(chartKey) {
+            var container = document.getElementById(chartKey);
+            if (!container) return;
+            container.ondblclick = function() {
+                handleChartDblClick(chartKey);
+            };
+        })(key);
+    }
+}
+
+function handleChartDblClick(chartKey) {
+    if (!chartDataCache) return;
+    var detailData = buildDetailData(chartKey);
+    if (!detailData) return;
+    var dataJson = JSON.stringify(detailData);
+    try { window.external.OpenChartDetail(chartKey, dataJson); } catch(e) {}
+}
+
+// ===== 构建独立窗口数据 =====
+function buildDetailData(chartKey) {
+    var data = chartDataCache;
+    var label = (data.switchLabel || data.switchId || '');
+    var xMax = data.xMax || 14;
+    var seriesData = [];
+    var title = '';
+    var yAxisType = 'current';
+    var thresholdValue = null;
+
+    if (chartKey === 'chart1') {
+        if (!data.prevEvent) return null;
+        title = label + ' 电流曲线 (上一动作: ' + (data.prevEvent.datetime || '') + ')';
+        if (data.prevEvent.currentA) seriesData.push({ name: 'A相电流', color: colors.currentA, data: data.prevEvent.currentA });
+        if (data.prevEvent.currentB) seriesData.push({ name: 'B相电流', color: colors.currentB, data: data.prevEvent.currentB });
+        if (data.prevEvent.currentC) seriesData.push({ name: 'C相电流', color: colors.currentC, data: data.prevEvent.currentC });
+        thresholdValue = data.thresholdCurrent;
+        yAxisType = 'current';
+    } else if (chartKey === 'chart2') {
+        if (!data.prevEvent || !data.prevEvent.power) return null;
+        title = label + ' 功率曲线 (上一动作: ' + (data.prevEvent.datetime || '') + ')';
+        seriesData.push({ name: '功率', color: colors.power, data: data.prevEvent.power });
+        thresholdValue = data.thresholdPower;
+        yAxisType = 'power';
+    } else if (chartKey === 'chart3') {
+        if (!data.currentEvent) return null;
+        title = label + ' 电流曲线 (当前: ' + (data.currentEvent.datetime || '') + ')';
+        if (data.currentEvent.currentA) seriesData.push({ name: 'A相电流', color: colors.currentA, data: data.currentEvent.currentA });
+        if (data.currentEvent.currentB) seriesData.push({ name: 'B相电流', color: colors.currentB, data: data.currentEvent.currentB });
+        if (data.currentEvent.currentC) seriesData.push({ name: 'C相电流', color: colors.currentC, data: data.currentEvent.currentC });
+        thresholdValue = data.thresholdCurrent;
+        yAxisType = 'current';
+    } else if (chartKey === 'chart4') {
+        if (!data.currentEvent || !data.currentEvent.power) return null;
+        title = label + ' 功率曲线 (当前: ' + (data.currentEvent.datetime || '') + ')';
+        seriesData.push({ name: '功率', color: colors.power, data: data.currentEvent.power });
+        thresholdValue = data.thresholdPower;
+        yAxisType = 'power';
+    } else {
+        return null;
+    }
+
+    return {
+        title: title,
+        yAxisTitle: (yAxisType === 'current') ? '电流(A)' : '功率(KW)',
+        yAxisType: yAxisType,
+        seriesData: seriesData,
+        thresholdValue: thresholdValue,
+        xMax: xMax,
+        colors: colors
+    };
+}
+
+// ===== 加载图表数据（由 C# 通过 InvokeScript 直接调用，JSON 字符串作为参数传入） =====
+// ===== 诊断函数：C# 验证 JS 桥 =====
+function _diag(msg) {
+    var el = document.getElementById('diagStatus');
+    if (el) el.innerText = msg;
+}
+
 function loadChartData(dataJson) {
+    // 诊断：标记收到 C# 调用
+    var ds = document.getElementById('diagStatus');
+    if (ds) ds.innerText = '收到数据...';
     var data;
     if (typeof dataJson === 'string') {
-        try { data = JSON.parse(dataJson); } catch(e) { return; }
+        try { data = JSON.parse(dataJson); } catch(e) {
+            showError('JSON parse error in loadChartData: ' + (e.message || e));
+            return;
+        }
     } else {
         data = dataJson;
     }
@@ -217,16 +455,27 @@ function loadChartData(dataJson) {
     chartDataCache = data;
 
     // 更新颜色配置
-    if (data.colors) { colors = data.colors; }
+    if (data.colors) {
+        if (data.colors.currentA) colors.currentA = data.colors.currentA;
+        if (data.colors.currentB) colors.currentB = data.colors.currentB;
+        if (data.colors.currentC) colors.currentC = data.colors.currentC;
+        if (data.colors.power) colors.power = data.colors.power;
+        if (data.colors.thresholdLine) colors.thresholdLine = data.colors.thresholdLine;
+        if (data.colors.background) colors.background = data.colors.background;
+    }
 
-    // 更新工具栏
-    document.getElementById('btnExportPng').disabled = false;
-    document.getElementById('btnExportCsv').disabled = false;
+    // 隐藏空状态提示
     document.getElementById('emptyState').style.display = 'none';
 
-    // 确保图表容器可见
-    var grid = document.querySelector('.chart-grid');
+    // 显示图表网格
+    var grid = document.getElementById('chartGrid');
     if (grid) grid.style.display = 'block';
+
+    // 启用按钮
+    document.getElementById('btnExportPng').disabled = false;
+    document.getElementById('btnExportCsv').disabled = false;
+    document.getElementById('btnSetReference').disabled = false;
+    document.getElementById('btnResetZoom').disabled = false;
 
     var xMax = data.xMax || 14;
     var thresholdCurrent = data.thresholdCurrent || null;
@@ -273,6 +522,103 @@ function loadChartData(dataJson) {
             label + '功率曲线 (当前: ' + (data.currentEvent.datetime || '') + ')',
             '功率(KW)', series4, thresholdPower, xMax);
     }
+
+    // 如果参考曲线已勾选且有参考数据，叠加参考曲线
+    if (document.getElementById('chkReference').checked && referenceCurveData) {
+        addReferenceSeries();
+    }
+
+    // 设置双击检测
+    setupDblClick();
+
+    // 诊断：标记渲染完成
+    var ds = document.getElementById('diagStatus');
+    if (ds) ds.innerText = '渲染完成 OK';
+}
+
+// ===== 重置所有图表缩放 =====
+function resetAllZoom() {
+    for (var key in charts) {
+        if (charts[key] && charts[key].xAxis && charts[key].xAxis[0]) {
+            try {
+                charts[key].xAxis[0].setExtremes(null, null);
+                charts[key].yAxis[0].setExtremes(null, null);
+            } catch(e) {}
+        }
+    }
+    document.getElementById('btnResetZoom').disabled = true;
+}
+
+// ===== 设定参考曲线 =====
+function setReferenceCurve() {
+    if (!chartDataCache) return;
+
+    var ref = {
+        currentA: null, currentB: null, currentC: null, power: null, label: ''
+    };
+
+    var ce = chartDataCache.currentEvent;
+    if (ce) {
+        if (ce.currentA) { ref.currentA = []; for (var i = 0; i < ce.currentA.length; i++) { ref.currentA.push([ce.currentA[i][0], ce.currentA[i][1]]); } }
+        if (ce.currentB) { ref.currentB = []; for (var i = 0; i < ce.currentB.length; i++) { ref.currentB.push([ce.currentB[i][0], ce.currentB[i][1]]); } }
+        if (ce.currentC) { ref.currentC = []; for (var i = 0; i < ce.currentC.length; i++) { ref.currentC.push([ce.currentC[i][0], ce.currentC[i][1]]); } }
+        if (ce.power) { ref.power = []; for (var i = 0; i < ce.power.length; i++) { ref.power.push([ce.power[i][0], ce.power[i][1]]); } }
+        ref.label = (ce.datetime || '') + ' (参考)';
+    }
+
+    referenceCurveData = ref;
+    document.getElementById('btnSetReference').innerHTML = '已设定参考曲线';
+
+    if (document.getElementById('chkReference').checked) {
+        addReferenceSeries();
+    }
+}
+
+// ===== 参考曲线显隐切换 =====
+function toggleReference() {
+    if (document.getElementById('chkReference').checked && referenceCurveData) {
+        addReferenceSeries();
+    } else {
+        removeReferenceSeries();
+    }
+}
+
+// ===== 添加参考曲线到图表 =====
+function addReferenceSeries() {
+    if (!referenceCurveData) return;
+    removeReferenceSeries();
+
+    var ref = referenceCurveData;
+
+    if (charts.chart1 && ref.currentA) { charts.chart1.addSeries({ name: '参考-A相电流', color: colors.refCurrentA, data: ref.currentA, lineWidth: 1.5, dashStyle: 'dash', marker: { enabled: false } }, false); }
+    if (charts.chart1 && ref.currentB) { charts.chart1.addSeries({ name: '参考-B相电流', color: colors.refCurrentB, data: ref.currentB, lineWidth: 1.5, dashStyle: 'dash', marker: { enabled: false } }, false); }
+    if (charts.chart1 && ref.currentC) { charts.chart1.addSeries({ name: '参考-C相电流', color: colors.refCurrentC, data: ref.currentC, lineWidth: 1.5, dashStyle: 'dash', marker: { enabled: false } }, false); }
+    if (charts.chart1) { try { charts.chart1.redraw(); } catch(e) {} }
+
+    if (charts.chart3 && ref.currentA) { charts.chart3.addSeries({ name: '参考-A相电流', color: colors.refCurrentA, data: ref.currentA, lineWidth: 1.5, dashStyle: 'dash', marker: { enabled: false } }, false); }
+    if (charts.chart3 && ref.currentB) { charts.chart3.addSeries({ name: '参考-B相电流', color: colors.refCurrentB, data: ref.currentB, lineWidth: 1.5, dashStyle: 'dash', marker: { enabled: false } }, false); }
+    if (charts.chart3 && ref.currentC) { charts.chart3.addSeries({ name: '参考-C相电流', color: colors.refCurrentC, data: ref.currentC, lineWidth: 1.5, dashStyle: 'dash', marker: { enabled: false } }, false); }
+    if (charts.chart3) { try { charts.chart3.redraw(); } catch(e) {} }
+
+    if (charts.chart2 && ref.power) { charts.chart2.addSeries({ name: '参考-功率', color: colors.refPower, data: ref.power, lineWidth: 1.5, dashStyle: 'dash', marker: { enabled: false } }, false); try { charts.chart2.redraw(); } catch(e) {} }
+    if (charts.chart4 && ref.power) { charts.chart4.addSeries({ name: '参考-功率', color: colors.refPower, data: ref.power, lineWidth: 1.5, dashStyle: 'dash', marker: { enabled: false } }, false); try { charts.chart4.redraw(); } catch(e) {} }
+}
+
+// ===== 移除参考曲线 =====
+function removeReferenceSeries() {
+    for (var key in charts) {
+        if (!charts[key]) continue;
+        var chart = charts[key];
+        var i = chart.series.length - 1;
+        while (i >= 0) {
+            var s = chart.series[i];
+            if (s.name && (s.name.indexOf('参考-') === 0)) {
+                try { s.remove(false); } catch(e) {}
+            }
+            i = i - 1;
+        }
+        try { chart.redraw(); } catch(e) {}
+    }
 }
 
 // ===== 复选框切换 =====
@@ -282,7 +628,6 @@ function toggleCheckbox() {
 
     for (var i = 0; i < ids.length; i++) {
         var checked = document.getElementById(ids[i]).checked;
-        // 更新 chart3（左下电流图含 A/B/C，右下功率图含 power）
         if (charts.chart3 && charts.chart3.series[i]) {
             if (checked) charts.chart3.series[i].show();
             else charts.chart3.series[i].hide();
@@ -291,7 +636,6 @@ function toggleCheckbox() {
             if (checked) charts.chart1.series[i].show();
             else charts.chart1.series[i].hide();
         }
-        // 功率系列在 chart2/chart4（series[0]）
         if (i === 3) {
             if (charts.chart2 && charts.chart2.series[0]) {
                 if (checked) charts.chart2.series[0].show();
@@ -304,15 +648,11 @@ function toggleCheckbox() {
         }
     }
 
-    // 阈值线切换
     var showThreshold = document.getElementById('chkThreshold').checked;
     toggleThreshold(charts.chart1, showThreshold);
     toggleThreshold(charts.chart3, showThreshold);
     toggleThreshold(charts.chart2, showThreshold);
     toggleThreshold(charts.chart4, showThreshold);
-
-    // 通知 C#
-    try { window.external.ToggleSeries('all', String(document.getElementById('chkPower').checked)); } catch(e) {}
 }
 
 // ===== 阈值线显隐 =====
@@ -320,7 +660,6 @@ function toggleThreshold(chart, show) {
     if (!chart || !chart.yAxis || !chart.yAxis[0]) return;
     var axis = chart.yAxis[0];
     if (show) {
-        // 重新添加 plotLine
         if (axis.options.plotLines && axis.options.plotLines.length > 0) {
             for (var i = 0; i < axis.options.plotLines.length; i++) {
                 axis.addPlotLine(axis.options.plotLines[i]);
@@ -344,9 +683,13 @@ function destroyCharts() {
 // ===== 清空图表 =====
 function clearCharts() {
     destroyCharts();
+    referenceCurveData = null;
     document.getElementById('emptyState').style.display = 'block';
     document.getElementById('btnExportPng').disabled = true;
     document.getElementById('btnExportCsv').disabled = true;
+    document.getElementById('btnSetReference').disabled = true;
+    document.getElementById('btnSetReference').innerHTML = '设定参考曲线';
+    document.getElementById('btnResetZoom').disabled = true;
     chartDataCache = null;
 }
 
@@ -358,7 +701,6 @@ function updateThreshold(thresholdJson) {
     } else {
         t = thresholdJson;
     }
-    // 重新加载数据（简单方案）
     if (chartDataCache) {
         if (t.current !== undefined) chartDataCache.thresholdCurrent = t.current;
         if (t.power !== undefined) chartDataCache.thresholdPower = t.power;
@@ -368,7 +710,6 @@ function updateThreshold(thresholdJson) {
 
 // ===== 导出 PNG =====
 function exportPng() {
-    // 通过 C# 端 WebBrowser.DrawToBitmap 实现
     try { window.external.ExportPng(); } catch(e) {}
 }
 
@@ -389,17 +730,18 @@ window.onresize = function() {
 // ===== 初始状态 =====
 function onChartReady() {
     document.getElementById('emptyState').style.display = 'block';
+    // 诊断：检查库是否正确加载
+    if (!highchartsReady) {
+        showError('Highcharts library not loaded! Check highcharts.js embedded resource.');
+    }
+    // 更新状态（保留 diagStatus span）
+    var ds = document.getElementById('diagStatus');
+    if (ds) ds.innerText = 'HC:' + (highchartsReady ? 'OK' : 'FAIL');
 }
-// IE8 兼容 attachEvent，降级为直接调用
-if (document.addEventListener) {
-    document.addEventListener('DOMContentLoaded', onChartReady);
-} else if (document.attachEvent) {
-    document.attachEvent('onreadystatechange', function() {
-        if (document.readyState === 'complete') onChartReady();
-    });
-} else {
-    window.onload = onChartReady;
-}
+</script>
+<script>
+// 页面加载完成后直接初始化（脚本在底部，DOM 已就绪）
+onChartReady();
 </script>
 </body>
 </html>

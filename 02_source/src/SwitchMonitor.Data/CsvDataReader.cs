@@ -16,26 +16,28 @@ namespace SwitchMonitor.Data
         public int Phase;
         public double[] Samples;
         public int SampleCount;
+        /// <summary>相位类型: 0=功率, 1=A相, 2=B相, 3=C相</summary>
+        public int PhaseType;
     }
 
     /// <summary>
     /// CSM2010 CSV 文件读取器
     /// 格式: timestamp,datetime,phase,s0,s1,...,s789
-    /// 相位值: 0=功率, 16777216=A相电流, 33554432=B相电流, 50331648/50332416=C相电流
+    ///
+    /// 相位编码规则（每个转辙机组使用 2 个配对文件 N 和 N+3）：
+    /// - 第一个文件 (索引 N): 相位高字节 = N + offset
+    ///   offset 0=功率, 1=A相电流, 2=B相电流
+    /// - 第二个文件 (索引 N+3): 包含 C相电流
     /// </summary>
     internal class CsvDataReader
     {
-        // 相位常量
-        public const int PHASE_POWER = 0;
-        public const int PHASE_A = 16777216;        // 0x01000000 A相电流
-        public const int PHASE_B = 33554432;        // 0x02000000 B相电流
-        public const int PHASE_C_IDEAL = 50331648;  // 0x03000000 C相电流（A+B）
-        public const int PHASE_C_ACTUAL = 50332416; // 实际数据中出现的C相值
-
         /// <summary>
-        /// 读取一个 CSV 文件的所有行
+        /// 读取一个 CSV 文件的所有行，并根据文件索引计算相位类型
         /// </summary>
-        public List<CsvRow> ReadFile(string filePath)
+        /// <param name="filePath">CSV 文件路径</param>
+        /// <param name="fileIndex">文件索引号 (0-31)</param>
+        /// <param name="isSecondFile">是否为配对中的第二个文件（包含C相）</param>
+        public List<CsvRow> ReadFile(string filePath, int fileIndex, bool isSecondFile)
         {
             var rows = new List<CsvRow>(1000);
 
@@ -52,7 +54,7 @@ namespace SwitchMonitor.Data
                     if (string.IsNullOrWhiteSpace(line))
                         continue;
 
-                    CsvRow row = ParseLine(line);
+                    CsvRow row = ParseLine(line, fileIndex, isSecondFile);
                     if (row != null && row.SampleCount > 0)
                         rows.Add(row);
                 }
@@ -62,9 +64,21 @@ namespace SwitchMonitor.Data
         }
 
         /// <summary>
+        /// 根据文件索引和原始相位值计算相位类型
+        /// </summary>
+        private static int ComputePhaseType(int phase, int fileIndex, bool isSecondFile)
+        {
+            if (isSecondFile)
+                return 3; // 第二个文件始终是 C 相
+
+            int highByte = (phase >> 24) & 0xFF;
+            return highByte - fileIndex; // 0=功率, 1=A相, 2=B相
+        }
+
+        /// <summary>
         /// 解析一行 CSV 数据
         /// </summary>
-        private CsvRow ParseLine(string line)
+        private CsvRow ParseLine(string line, int fileIndex, bool isSecondFile)
         {
             string[] parts = line.Split(',');
             if (parts.Length < 4)
@@ -125,40 +139,10 @@ namespace SwitchMonitor.Data
                 DateTimeStr = dateTimeStr,
                 Phase = phase,
                 Samples = samples,
-                SampleCount = count
+                SampleCount = count,
+                PhaseType = ComputePhaseType(phase, fileIndex, isSecondFile)
             };
         }
 
-        /// <summary>
-        /// 判断相位是否为 A相电流
-        /// </summary>
-        public static bool IsPhaseA(int phase)
-        {
-            return phase == PHASE_A;
-        }
-
-        /// <summary>
-        /// 判断相位是否为 B相电流
-        /// </summary>
-        public static bool IsPhaseB(int phase)
-        {
-            return phase == PHASE_B;
-        }
-
-        /// <summary>
-        /// 判断相位是否为 C相电流（含实际值 50332416）
-        /// </summary>
-        public static bool IsPhaseC(int phase)
-        {
-            return phase == PHASE_C_IDEAL || phase == PHASE_C_ACTUAL;
-        }
-
-        /// <summary>
-        /// 判断相位是否为功率
-        /// </summary>
-        public static bool IsPhasePower(int phase)
-        {
-            return phase == PHASE_POWER;
-        }
     }
 }

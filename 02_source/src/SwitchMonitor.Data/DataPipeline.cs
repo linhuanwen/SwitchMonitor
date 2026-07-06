@@ -98,18 +98,18 @@ namespace SwitchMonitor.Data
             string file1 = Path.Combine(sourceDir, string.Format("SwitchCurve({0}).csv", idx1));
             string file2 = Path.Combine(sourceDir, string.Format("SwitchCurve({0}).csv", idx2));
 
-            // 读取两个文件的所有行
+            // 读取两个文件的所有行（传入文件索引以便正确检测相位）
             var allRows = new List<CsvRow>();
 
             if (File.Exists(file1))
             {
-                var rows1 = _reader.ReadFile(file1);
+                var rows1 = _reader.ReadFile(file1, idx1, false);
                 allRows.AddRange(rows1);
             }
 
             if (File.Exists(file2))
             {
-                var rows2 = _reader.ReadFile(file2);
+                var rows2 = _reader.ReadFile(file2, idx2, true);
                 allRows.AddRange(rows2);
             }
 
@@ -133,24 +133,22 @@ namespace SwitchMonitor.Data
                     eventMap[row.Timestamp] = evt;
                 }
 
-                // 根据相位分配采样数据
-                if (CsvDataReader.IsPhaseA(row.Phase))
+                // 根据相位类型分配采样数据
+                switch (row.PhaseType)
                 {
-                    evt.CurrentA = ArrayToDoubleList(row.Samples, row.SampleCount);
+                    case 0: // 功率
+                        evt.Power = ArrayToPairedList(row.Samples, row.SampleCount, 0.04);
+                        break;
+                    case 1: // A相电流
+                        evt.CurrentA = ArrayToPairedList(row.Samples, row.SampleCount, 0.04);
+                        break;
+                    case 2: // B相电流
+                        evt.CurrentB = ArrayToPairedList(row.Samples, row.SampleCount, 0.04);
+                        break;
+                    case 3: // C相电流
+                        evt.CurrentC = ArrayToPairedList(row.Samples, row.SampleCount, 0.04);
+                        break;
                 }
-                else if (CsvDataReader.IsPhaseB(row.Phase))
-                {
-                    evt.CurrentB = ArrayToDoubleList(row.Samples, row.SampleCount);
-                }
-                else if (CsvDataReader.IsPhaseC(row.Phase))
-                {
-                    evt.CurrentC = ArrayToDoubleList(row.Samples, row.SampleCount);
-                }
-                else if (CsvDataReader.IsPhasePower(row.Phase))
-                {
-                    evt.Power = ArrayToDoubleList(row.Samples, row.SampleCount);
-                }
-                // 其他未知相位值忽略
 
                 // 取最大的 SampleCount
                 if (row.SampleCount > evt.SampleCount)
@@ -204,13 +202,13 @@ namespace SwitchMonitor.Data
         }
 
         /// <summary>
-        /// 将采样数组转为 List{double}（只取有效部分）
+        /// 将采样数组转为 List{double[]}（[t, v] 对格式）
         /// </summary>
-        private static List<double> ArrayToDoubleList(double[] samples, int count)
+        private static List<double[]> ArrayToPairedList(double[] samples, int count, double interval)
         {
-            var list = new List<double>(count);
+            var list = new List<double[]>(count);
             for (int i = 0; i < count; i++)
-                list.Add(samples[i]);
+                list.Add(new double[] { Math.Round(i * interval, 3), samples[i] });
             return list;
         }
 

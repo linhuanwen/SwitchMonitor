@@ -1,5 +1,6 @@
 using System;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Drawing;
 using System.IO;
 using System.Runtime.InteropServices;
@@ -57,6 +58,12 @@ namespace SwitchMonitor.UI
             LoadSidebar();
             // 加载图表页（空状态）
             LoadChartPage(null, null);
+
+            // 记录启动日志
+            Logger.Info("SwitchMonitor 启动");
+            Logger.Info("配置路径: " + Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "config.json"));
+            Logger.Info("数据目录: " + Path.Combine(AppDomain.CurrentDomain.BaseDirectory, config.ParsedDataDir));
+            Logger.Info("转辙机数量: " + config.SwitchGroups.Count);
         }
 
         #region 菜单栏与数据导入
@@ -84,6 +91,18 @@ namespace SwitchMonitor.UI
             dataMenu.DropDownItems.Add(refreshItem);
 
             _menuStrip.Items.Add(dataMenu);
+
+            // === 工具菜单 ===
+            var toolMenu = new ToolStripMenuItem("工具(&T)");
+
+            var viewLogItem = new ToolStripMenuItem("查看日志(&L)...", null, OnViewLogClicked);
+            viewLogItem.ShortcutKeys = Keys.Control | Keys.L;
+            toolMenu.DropDownItems.Add(viewLogItem);
+
+            var openLogDirItem = new ToolStripMenuItem("打开日志目录(&O)...", null, OnOpenLogDirClicked);
+            toolMenu.DropDownItems.Add(openLogDirItem);
+
+            _menuStrip.Items.Add(toolMenu);
             this.Controls.Add(_menuStrip);
             this.MainMenuStrip = _menuStrip;
         }
@@ -155,6 +174,44 @@ namespace SwitchMonitor.UI
             }
 
             statusLabel.Text = "列表已刷新";
+        }
+
+        private void OnViewLogClicked(object sender, EventArgs e)
+        {
+            try
+            {
+                string logPath = Logger.TodayLogPath;
+                if (File.Exists(logPath))
+                {
+                    Process.Start("notepad.exe", logPath);
+                }
+                else
+                {
+                    MessageBox.Show("今天的日志文件尚未生成。\n\n日志路径: " + logPath,
+                        "查看日志", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("打开日志失败: " + ex.Message,
+                    "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private void OnOpenLogDirClicked(object sender, EventArgs e)
+        {
+            try
+            {
+                string logDir = Logger.LogDir;
+                if (!Directory.Exists(logDir))
+                    Directory.CreateDirectory(logDir);
+                Process.Start("explorer.exe", logDir);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("打开日志目录失败: " + ex.Message,
+                    "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
 
         private void ImportWorker_DoWork(object sender, DoWorkEventArgs e)
@@ -323,10 +380,14 @@ namespace SwitchMonitor.UI
             _selectedSwitchId = switchId;
             _selectedTimestamp = 0;
 
+            Logger.Info("选择转辙机: " + switchId);
+
             // 获取该转辙机的所有日期列表
             var dates = _indexManager.GetDates(switchId);
 
-            // 通知侧边栏更新日期列表
+            Logger.Info(string.Format("转辙机 {0} 共 {1} 个日期", switchId, dates.Count));
+
+            // 通知侧边栏更新日期下拉框
             string datesJson = _serializer.Serialize(dates);
             InvokeSidebarScript("setDates", datesJson);
 
@@ -357,10 +418,14 @@ namespace SwitchMonitor.UI
 
             _selectedDate = date;
 
+            Logger.Info(string.Format("选择日期: {0} / {1}", _selectedSwitchId, date));
+
             // 获取该天的所有时间戳
             var timestamps = _indexManager.GetTimestamps(_selectedSwitchId, date);
 
-            // 通知侧边栏更新时间列表
+            Logger.Info(string.Format("日期 {0} 共 {1} 条动作记录", date, timestamps.Count));
+
+            // 通知侧边栏更新时间下拉框
             string timesJson = _serializer.Serialize(timestamps);
             InvokeSidebarScript("setTimes", timesJson);
 
@@ -390,6 +455,10 @@ namespace SwitchMonitor.UI
                 return;
 
             _selectedTimestamp = timestamp;
+
+            Logger.Info(string.Format("选择时间: {0} / {1} / {2}",
+                _selectedSwitchId, _selectedDate, UnixToTimeString(timestamp)));
+
             LoadCurveData();
             UpdateStatusBar();
         }
@@ -400,6 +469,33 @@ namespace SwitchMonitor.UI
         public void OnSeriesToggled(string seriesName, bool visible)
         {
             InvokeChartScript("toggleSeries", _serializer.Serialize(new { name = seriesName, visible = visible }));
+        }
+
+        /// <summary>
+        /// 双击图表 → 打开独立曲线详情窗口
+        /// </summary>
+        public void OnOpenChartDetail(string chartKey, string dataJson)
+        {
+            try
+            {
+                // 准备 chart_detail.html（内联注入 JS 库）
+                string detailHtml = GetEmbeddedResource("SwitchMonitor.UI.Html.chart_detail.html");
+                if (string.IsNullOrEmpty(detailHtml))
+                {
+                    MessageBox.Show("无法加载图表详情页面。", "错误",
+                        MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    return;
+                }
+                detailHtml = InjectEmbeddedScript(detailHtml, "SwitchMonitor.UI.Js.jquery.js");
+                detailHtml = InjectEmbeddedScript(detailHtml, "SwitchMonitor.UI.Js.highcharts.js");
+
+                var detailForm = new ChartDetailForm(dataJson, detailHtml);
+                detailForm.Show(this);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("OnOpenChartDetail 错误: " + ex.Message);
+            }
         }
 
         #endregion
@@ -465,6 +561,11 @@ namespace SwitchMonitor.UI
 
             string chartDataJson = _serializer.Serialize(chartData);
             InvokeChartScript("loadChartData", chartDataJson);
+
+            Logger.Info(string.Format("加载曲线: {0} / {1} / {2} (当前:{3}, 上一:{4})",
+                _selectedSwitchId, _selectedDate, UnixToTimeString(_selectedTimestamp),
+                currentEvent != null ? currentEvent.Direction : "无",
+                prevEvent != null ? prevEvent.Direction : "无"));
         }
 
         /// <summary>
@@ -475,7 +576,7 @@ namespace SwitchMonitor.UI
             if (evt == null)
                 return null;
 
-            // 构建 [[t, v], ...] 格式的采样数组
+            // 构建 [[t, v], ...] 格式的采样数组（CurrentA 已是 double[] {t, v} 对）
             var currentA = new object[evt.SampleCount];
             var currentB = new object[evt.SampleCount];
             var currentC = new object[evt.SampleCount];
@@ -484,10 +585,10 @@ namespace SwitchMonitor.UI
             for (int i = 0; i < evt.SampleCount; i++)
             {
                 double t = Math.Round(i * evt.SampleInterval, 3);
-                currentA[i] = new double[] { t, i < evt.CurrentA.Count ? Math.Round(evt.CurrentA[i], 3) : 0 };
-                currentB[i] = new double[] { t, i < evt.CurrentB.Count ? Math.Round(evt.CurrentB[i], 3) : 0 };
-                currentC[i] = new double[] { t, i < evt.CurrentC.Count ? Math.Round(evt.CurrentC[i], 3) : 0 };
-                power[i] = new double[] { t, i < evt.Power.Count ? Math.Round(evt.Power[i], 3) : 0 };
+                currentA[i] = i < evt.CurrentA.Count ? evt.CurrentA[i] : (object)new double[] { t, 0 };
+                currentB[i] = i < evt.CurrentB.Count ? evt.CurrentB[i] : (object)new double[] { t, 0 };
+                currentC[i] = i < evt.CurrentC.Count ? evt.CurrentC[i] : (object)new double[] { t, 0 };
+                power[i] = i < evt.Power.Count ? evt.Power[i] : (object)new double[] { t, 0 };
             }
 
             return new
@@ -530,6 +631,7 @@ namespace SwitchMonitor.UI
 
         /// <summary>
         /// 向侧边栏 WebBrowser 调用 JS 函数
+        /// 用 InvokeScript 直接将 JSON 字符串作为 COM 参数传递
         /// </summary>
         private void InvokeSidebarScript(string functionName, string jsonArg)
         {
@@ -542,12 +644,13 @@ namespace SwitchMonitor.UI
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine("InvokeSidebarScript 错误: " + ex.Message);
+                Logger.Error("InvokeSidebarScript 错误: " + functionName + " | " + ex.Message);
             }
         }
 
         /// <summary>
         /// 向图表 WebBrowser 调用 JS 函数
+        /// 用 InvokeScript 直接将 JSON 字符串作为 COM 参数传递
         /// </summary>
         private void InvokeChartScript(string functionName, string jsonArg)
         {
@@ -555,12 +658,20 @@ namespace SwitchMonitor.UI
             {
                 if (chartBrowser.Document != null)
                 {
+                    int dataLen = jsonArg != null ? jsonArg.Length : 0;
+                    Logger.Info(string.Format("InvokeChartScript: {0}, 数据长度={1}, ReadyState={2}",
+                        functionName, dataLen, chartBrowser.ReadyState));
                     chartBrowser.Document.InvokeScript(functionName, new object[] { jsonArg });
+                    Logger.Info("InvokeChartScript 完成: " + functionName);
+                }
+                else
+                {
+                    Logger.Error("InvokeChartScript 失败: Document 为 null, functionName=" + functionName);
                 }
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine("InvokeChartScript 错误: " + ex.Message);
+                Logger.Error("InvokeChartScript 错误: " + functionName + " | " + ex.Message);
             }
         }
 
@@ -637,6 +748,15 @@ namespace SwitchMonitor.UI
         {
             _form.BeginInvoke(new Action(() =>
                 _form.OnSeriesToggled(seriesName, visible == "true")));
+        }
+
+        /// <summary>
+        /// HTML: window.external.OpenChartDetail("chart1", "{...}")
+        /// </summary>
+        public void OpenChartDetail(string chartKey, string dataJson)
+        {
+            _form.BeginInvoke(new Action(() =>
+                _form.OnOpenChartDetail(chartKey, dataJson)));
         }
     }
 

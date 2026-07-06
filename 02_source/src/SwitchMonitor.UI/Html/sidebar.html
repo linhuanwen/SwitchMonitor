@@ -37,17 +37,19 @@ body {
     border-left: 2px solid #4488FF;
 }
 
-/* 日期选择 */
-.date-list { list-style: none; }
-.date-list li {
-    padding: 4px 12px;
-    cursor: pointer;
-    color: #aaa;
+/* 日期下拉框 — IE8 OS 渲染 select，必须用 JS 设 style.color */
+select#dateSelect {
+    width: 100%;
+    padding: 4px 6px;
+    font-size: 12px;
+    font-family: SimSun, sans-serif;
+    background: #ffffff;
+    color: #000000;
+    border: 1px solid #3a3a6e;
 }
-.date-list li:hover { background: #252545; color: #fff; }
-.date-list li.active {
-    background: #252550;
-    color: #44FF44;
+select#dateSelect option {
+    background: #ffffff;
+    color: #000000;
 }
 
 /* 时间列表 */
@@ -75,6 +77,13 @@ body {
     font-size: 11px;
 }
 
+/* 信息提示 */
+.info-text {
+    color: #777;
+    font-size: 10px;
+    padding: 2px 8px;
+}
+
 /* 分割线 */
 .divider { border: none; border-top: 1px solid #2a2a4e; margin: 4px 0; }
 </style>
@@ -90,9 +99,10 @@ body {
 
 <div class="section">
     <div class="section-title">日期</div>
-    <ul class="date-list" id="dateList">
-        <li class="empty-hint">请选择转辙机</li>
-    </ul>
+    <select id="dateSelect" onchange="onDateSelectChange()">
+        <option>请选择转辙机</option>
+    </select>
+    <div class="info-text" id="dateInfo"></div>
 </div>
 
 <hr class="divider">
@@ -104,11 +114,11 @@ body {
             <li class="empty-hint">请选择日期</li>
         </ul>
     </div>
+    <div class="info-text" id="timeInfo"></div>
 </div>
 
 <script>
-// ===== IE7/IE8 兼容层 =====
-// JSON.parse polyfill for IE7
+// ===== IE7/IE8 JSON 兼容层 =====
 if (typeof JSON === 'undefined' || typeof JSON.parse === 'undefined') {
     window.JSON = { parse: function(t) { return (new Function('return ' + t))(); } };
 }
@@ -130,7 +140,7 @@ function initSwitchGroups(groupsJson) {
     list.innerHTML = '';
     for (var i = 0; i < groups.length; i++) {
         var li = document.createElement('li');
-        li.innerText =groups[i].label || groups[i].Id || groups[i].id;
+        li.innerText = groups[i].label || groups[i].Id || groups[i].id;
         li.setAttribute('data-id', groups[i].Id || groups[i].id);
         li.onclick = function() {
             selectSwitch(this.getAttribute('data-id'));
@@ -156,14 +166,25 @@ function selectSwitch(switchId) {
         }
     }
 
+    // 重置日期下拉框（IE8: innerHTML 对 select 只读，用 options.length=0）
+    var sel = document.getElementById('dateSelect');
+    sel.options.length = 0;
+    var opt = document.createElement('option');
+    opt.text = '加载中...';
+    opt.style.color = '#000000';
+    opt.style.backgroundColor = '#ffffff';
+    sel.add(opt);
+
     // 清空时间列表
     document.getElementById('timeList').innerHTML = '<li class="empty-hint">加载中...</li>';
+    document.getElementById('dateInfo').innerText = '';
+    document.getElementById('timeInfo').innerText = '';
 
     // 通知 C#
     try { window.external.SelectSwitch(switchId); } catch(e) {}
 }
 
-// ===== 日期列表更新 =====
+// ===== 日期下拉框填充 =====
 function setDates(datesJson) {
     var dates;
     if (typeof datesJson === 'string') {
@@ -172,41 +193,53 @@ function setDates(datesJson) {
         dates = datesJson;
     }
 
-    var list = document.getElementById('dateList');
-    list.innerHTML = '';
+    var sel = document.getElementById('dateSelect');
+    // IE8: innerHTML 对 select 只读，必须用 options.length=0 清空
+    sel.options.length = 0;
 
     if (!dates || dates.length === 0) {
-        list.innerHTML = '<li class="empty-hint">暂无数据</li>';
+        var opt = document.createElement('option');
+        opt.text = '暂无数据';
+        opt.style.color = '#000000';
+        opt.style.backgroundColor = '#ffffff';
+        sel.add(opt);
         document.getElementById('timeList').innerHTML = '<li class="empty-hint">该转辙机无数据</li>';
+        document.getElementById('dateInfo').innerText = '';
         return;
     }
 
+    // 填充日期选项，显式设置颜色（IE8 中 body color 会级联进 option）
     for (var i = 0; i < dates.length; i++) {
-        var li = document.createElement('li');
-        li.innerText =dates[i];
-        li.setAttribute('data-date', dates[i]);
-        li.onclick = function() {
-            selectDate(this.getAttribute('data-date'));
-        };
-        list.appendChild(li);
+        var opt = document.createElement('option');
+        opt.text = dates[i];
+        opt.value = dates[i];
+        opt.style.color = '#000000';
+        opt.style.backgroundColor = '#ffffff';
+        sel.add(opt);
     }
+
+    document.getElementById('dateInfo').innerText = '共 ' + dates.length + ' 天数据';
 }
 
+// ===== C# 通知选中某个日期时调用，同步下拉框选中项 =====
 function setSelectedDate(date) {
     currentDate = date;
-    var items = document.querySelectorAll('#dateList li');
-    for (var i = 0; i < items.length; i++) {
-        if (items[i].getAttribute('data-date') === date) {
-            items[i].className = 'active';
-        } else {
-            items[i].className = '';
+    var sel = document.getElementById('dateSelect');
+    for (var i = 0; i < sel.options.length; i++) {
+        if (sel.options[i].value === date) {
+            sel.selectedIndex = i;
+            break;
         }
     }
     document.getElementById('timeList').innerHTML = '<li class="empty-hint">加载中...</li>';
+    document.getElementById('timeInfo').innerText = '';
 }
 
-// ===== 日期点击 =====
-function selectDate(date) {
+// ===== 日期下拉框 onchange 事件 =====
+function onDateSelectChange() {
+    var sel = document.getElementById('dateSelect');
+    var date = sel.options[sel.selectedIndex].value;
+    if (!date || date === '请选择转辙机' || date === '加载中...' || date === '暂无数据') return;
     setSelectedDate(date);
     try { window.external.SelectDate(date); } catch(e) {}
 }
@@ -225,13 +258,14 @@ function setTimes(timesJson) {
 
     if (!timestamps || timestamps.length === 0) {
         list.innerHTML = '<li class="empty-hint">该日无动作记录</li>';
+        document.getElementById('timeInfo').innerText = '';
         return;
     }
 
     for (var i = 0; i < timestamps.length; i++) {
         var ts = timestamps[i];
         var li = document.createElement('li');
-        li.innerText =formatTimestamp(ts);
+        li.innerText = formatTimestamp(ts);
         li.setAttribute('data-ts', ts);
         li.onclick = function() {
             selectTime(this.getAttribute('data-ts'));
@@ -239,24 +273,25 @@ function setTimes(timesJson) {
         list.appendChild(li);
     }
 
-    // 自适应时间列表高度（动态计算上方的实际占用高度）
+    // 自适应时间列表高度
     var container = document.getElementById('timeContainer');
     var bodyHeight = document.body.clientHeight || document.documentElement.clientHeight;
     var switchSection = document.getElementById('switchList').parentNode;
-    var dateSection = document.getElementById('dateList').parentNode;
+    var dateSection = document.getElementById('dateSelect').parentNode;
     var topHeight = 0;
     if (switchSection) topHeight += switchSection.offsetHeight;
     if (dateSection) topHeight += dateSection.offsetHeight;
-    // 加上两个分割线的高度
     var dividers = document.querySelectorAll('.divider');
     for (var d = 0; d < dividers.length; d++) {
         topHeight += dividers[d].offsetHeight;
     }
-    var reservedBottom = 20; // 底部留白
+    var reservedBottom = 20;
     if (bodyHeight > topHeight + reservedBottom) {
         container.style.maxHeight = (bodyHeight - topHeight - reservedBottom) + 'px';
         container.style.overflowY = 'auto';
     }
+
+    document.getElementById('timeInfo').innerText = '共 ' + timestamps.length + ' 条动作记录';
 }
 
 function setSelectedTime(timestamp) {

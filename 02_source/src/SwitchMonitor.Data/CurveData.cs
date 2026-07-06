@@ -26,24 +26,24 @@ namespace SwitchMonitor.Data
         /// <summary>采样点数</summary>
         public int SampleCount { get; set; }
 
-        /// <summary>A 相电流采样值列表</summary>
-        public List<double> CurrentA { get; set; }
+        /// <summary>A 相电流采样值列表 [[t, v], ...]</summary>
+        public List<double[]> CurrentA { get; set; }
 
-        /// <summary>B 相电流采样值列表</summary>
-        public List<double> CurrentB { get; set; }
+        /// <summary>B 相电流采样值列表 [[t, v], ...]</summary>
+        public List<double[]> CurrentB { get; set; }
 
-        /// <summary>C 相电流采样值列表</summary>
-        public List<double> CurrentC { get; set; }
+        /// <summary>C 相电流采样值列表 [[t, v], ...]</summary>
+        public List<double[]> CurrentC { get; set; }
 
-        /// <summary>功率采样值列表</summary>
-        public List<double> Power { get; set; }
+        /// <summary>功率采样值列表 [[t, v], ...]</summary>
+        public List<double[]> Power { get; set; }
 
         public SwitchEvent()
         {
-            CurrentA = new List<double>();
-            CurrentB = new List<double>();
-            CurrentC = new List<double>();
-            Power = new List<double>();
+            CurrentA = new List<double[]>();
+            CurrentB = new List<double[]>();
+            CurrentC = new List<double[]>();
+            Power = new List<double[]>();
             Direction = "定位↔反位";
         }
     }

@@ -26,7 +26,7 @@
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|x86' ">
     <DebugType>pdbonly</DebugType>
     <Optimize>true</Optimize>
-    <OutputPath>bin\Release\</OutputPath>
+    <OutputPath>D:\tool\SwitchMonitor\05_production_data\</OutputPath>
     <DefineConstants>TRACE</DefineConstants>
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
@@ -52,6 +52,7 @@
     </Compile>
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="ChartDetailForm.cs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\SwitchMonitor.Data\SwitchMonitor.Data.csproj">
@@ -62,6 +63,7 @@
   <ItemGroup>
     <EmbeddedResource Include="Html\sidebar.html" />
     <EmbeddedResource Include="Html\charts.html" />
+    <EmbeddedResource Include="Html\chart_detail.html" />
     <EmbeddedResource Include="Js\jquery.js" />
     <EmbeddedResource Include="Js\highcharts.js" />
   </ItemGroup>

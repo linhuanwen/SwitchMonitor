@@ -17,14 +17,14 @@
     "power":   { "enabled": true, "value": 1.5, "unit": "KW" }
   },
   "chartColors": {
-    "currentA": "#FF4444",
-    "currentB": "#44FF44",
-    "currentC": "#4488FF",
-    "power": "#FFAA00",
-    "thresholdLine": "#FF0000",
-    "background": "#1a1a2e",
-    "gridLine": "#333355",
-    "textColor": "#888888"
+    "currentA": "#FF5555",
+    "currentB": "#55FF55",
+    "currentC": "#5599FF",
+    "power": "#FFBB33",
+    "thresholdLine": "#FF4444",
+    "background": "#000000",
+    "gridLine": "#3a3a3a",
+    "textColor": "#BBBBBB"
   },
   "ui": {
     "sidebarWidthPercent": 18,
