@@ -67,6 +67,22 @@ html, body {
 .chart-inner {
     width: 100%;
     height: 100%;
+    position: relative;
+}
+
+/* 自定义鼠标跟随提示框 */
+.custom-tooltip {
+    position: absolute;
+    pointer-events: none;
+    z-index: 1000;
+    background: #1a1a30;
+    border: 1px solid #8888CC;
+    padding: 8px 12px;
+    font: 12px SimSun, sans-serif;
+    color: #DDDDDD;
+    display: none;
+    white-space: nowrap;
+    line-height: 1.6;
 }
 
 /* 空状态 */
@@ -121,18 +137,18 @@ html, body {
 <div class="chart-grid" id="chartGrid">
     <div class="chart-row">
         <div class="chart-cell">
-            <div class="chart-inner" id="chart1"></div>
+            <div class="chart-inner" id="chart1"><div class="custom-tooltip" id="tip_chart1"></div></div>
         </div>
         <div class="chart-cell">
-            <div class="chart-inner" id="chart2"></div>
+            <div class="chart-inner" id="chart2"><div class="custom-tooltip" id="tip_chart2"></div></div>
         </div>
     </div>
     <div class="chart-row">
         <div class="chart-cell">
-            <div class="chart-inner" id="chart3"></div>
+            <div class="chart-inner" id="chart3"><div class="custom-tooltip" id="tip_chart3"></div></div>
         </div>
         <div class="chart-cell">
-            <div class="chart-inner" id="chart4"></div>
+            <div class="chart-inner" id="chart4"><div class="custom-tooltip" id="tip_chart4"></div></div>
         </div>
     </div>
 </div>
@@ -212,18 +228,18 @@ var referenceCurveData = null;
 
 // 默认配色（会被 C# 传入的 config 覆盖）
 var colors = {
-    currentA: '#55FF55',
+    currentA: '#00E5E5',
     currentB: '#FF5555',
     currentC: '#CC44CC',
-    power: '#55FF55',
+    power: '#FFD700',
     thresholdLine: '#FF4444',
     background: '#0a0a1e',
     gridLine: '#3a3a5a',
     textColor: '#CCCCCC',
-    refCurrentA: '#00FFFF',
+    refCurrentA: '#00E5E5',
     refCurrentB: '#FF5555',
-    refCurrentC: '#FFFF00',
-    refPower: '#FF5555'
+    refCurrentC: '#CC44CC',
+    refPower: '#FFD700'
 };
 
 // ===== 功率数据坐标变换（使 <0.6 的 0.2 步长与 >0.6 的 1.0 步长等宽） =====
@@ -253,16 +269,24 @@ function setupMouseWheelZoom(chart, containerId) {
     var yAxis = chart.yAxis[0];
     if (!xAxis || !yAxis) return;
 
-    // 记录初始范围
-    chart._initXMin = xAxis.min || 0;
-    chart._initXMax = xAxis.max || 14;
-    chart._initYMin = yAxis.min || 0;
-    chart._initYMax = yAxis.max || 4;
+    // 记录初始范围（用 options 而非 axis 计算值，避免 Highcharts 内部
+    // endOnTick/maxPadding 等调整导致取值不可靠）
+    chart._initXMin = xAxis.options.min != null ? xAxis.options.min : 0;
+    chart._initXMax = xAxis.options.max != null ? xAxis.options.max : 14;
+    chart._initYMin = yAxis.options.min != null ? yAxis.options.min : 0;
+    chart._initYMax = yAxis.options.max != null ? yAxis.options.max : 4;
 
     // 记录初始刻度配置（setExtremes 后需要恢复，否则刻度线数量/间距会变）
     chart._initXAxisTickInterval = xAxis.options.tickInterval;   // X 轴（可能 undefined，即自动）
     chart._initYAxisTickInterval = yAxis.options.tickInterval;   // 电流 Y 轴（0.5）
-    chart._initYAxisTickPositions = yAxis.options.tickPositions; // 功率 Y 轴（自定义刻度数组）
+    // 注意：tickPositions 是数组，必须用 .slice() 做副本！
+    // 而且 Highcharts 初始化后可能将 options.tickPositions 置为 null，
+    // 此时需从 yAxis.tickPositions（实际计算值）获取初始刻度。
+    var tp = yAxis.options.tickPositions;
+    if (!tp || !tp.length) {
+        tp = yAxis.tickPositions;
+    }
+    chart._initYAxisTickPositions = (tp && tp.length) ? tp.slice() : undefined; // 功率 Y 轴（自定义刻度数组）
 
     // 辅助函数：将 extremes 恢复到初始值并还原刻度配置
     function resetExtremesToInit() {
@@ -270,18 +294,26 @@ function setupMouseWheelZoom(chart, containerId) {
         var yA = chart.yAxis[0];
         if (!xA || !yA) return;
         try {
-            // 先恢复 X 轴，不立即重绘
-            xA.setExtremes(chart._initXMin, chart._initXMax, false);
+            // 先把初始刻度配置恢复到 axis.options 中，这样 setExtremes 内部
+            // 调用 setScale 时就会用正确的 tick 配置来重新计算刻度线
+            xA.options.min = chart._initXMin;
+            xA.options.max = chart._initXMax;
+            yA.options.min = chart._initYMin;
+            yA.options.max = chart._initYMax;
             if (chart._initXAxisTickInterval !== undefined) {
-                xA.update({tickInterval: chart._initXAxisTickInterval}, false);
+                xA.options.tickInterval = chart._initXAxisTickInterval;
             }
-            // 再恢复 Y 轴，触发重绘
-            yA.setExtremes(chart._initYMin, chart._initYMax, false);
             if (chart._initYAxisTickPositions !== undefined) {
-                yA.update({tickPositions: chart._initYAxisTickPositions}, false);
+                // 必须 .slice() 副本！否则 yA.options.tickPositions 和
+                // _initYAxisTickPositions 指向同一数组，setExtremes 内部
+                // 会原地修改它，导致第二次恢复时存档已被污染。
+                yA.options.tickPositions = chart._initYAxisTickPositions.slice();
             } else if (chart._initYAxisTickInterval !== undefined) {
-                yA.update({tickInterval: chart._initYAxisTickInterval}, false);
+                yA.options.tickInterval = chart._initYAxisTickInterval;
             }
+            // 恢复 extremes 并重绘（此时 options 中的刻度配置已经还原）
+            xA.setExtremes(chart._initXMin, chart._initXMax, false);
+            yA.setExtremes(chart._initYMin, chart._initYMax, false);
             chart.redraw();
         } catch(ex) {}
     }
@@ -323,23 +355,24 @@ function setupMouseWheelZoom(chart, containerId) {
         var xSnapped = false;
         var ySnapped = false;
 
-        // 缩小不能超过初始范围
+        // 放大/缩小都不能超出初始坐标范围（保证曲线始终在可视区域内）
+        // 先做基础裁剪：不允许任一侧超出初始边界
+        newXMin = Math.max(chart._initXMin, newXMin);
+        newXMax = Math.min(chart._initXMax, newXMax);
+        newYMin = Math.max(chart._initYMin, newYMin);
+        newYMax = Math.min(chart._initYMax, newYMax);
+
+        // 缩小时：如果范围已完全覆盖初始范围，则弹回初始值（触发完整刻度恢复）
         if (zoomFactor > 1) {
             if (newXMin <= chart._initXMin && newXMax >= chart._initXMax) {
                 newXMin = chart._initXMin;
                 newXMax = chart._initXMax;
                 xSnapped = true;
-            } else {
-                newXMin = Math.max(chart._initXMin, newXMin);
-                newXMax = Math.min(chart._initXMax, newXMax);
             }
             if (newYMin <= chart._initYMin && newYMax >= chart._initYMax) {
                 newYMin = chart._initYMin;
                 newYMax = chart._initYMax;
                 ySnapped = true;
-            } else {
-                newYMin = Math.max(chart._initYMin, newYMin);
-                newYMax = Math.min(chart._initYMax, newYMax);
             }
         }
 
@@ -542,6 +575,186 @@ function setupMousePanDrag(chart, containerId) {
     container._panMouseDown = onMouseDown;
 }
 
+// ===== 鼠标追踪：自定义提示框 + 垂直参考线（用于所有4个图表） =====
+function setupChartMouseTracking(chart, containerId) {
+    if (!chart) return;
+    var container = chart.container || document.getElementById(containerId);
+    if (!container) return;
+
+    var xAxis = chart.xAxis[0];
+    var isPower = chart._isPowerChart || false;
+    var tooltip = document.getElementById('tip_' + containerId);
+    // Highcharts 渲染时会清空容器，静态 tooltip div 可能已被销毁，动态创建
+    if (!tooltip) {
+        tooltip = document.createElement('div');
+        tooltip.id = 'tip_' + containerId;
+        tooltip.className = 'custom-tooltip';
+        container.appendChild(tooltip);
+    }
+
+    var lastUpdate = 0;
+
+    // 获取容器的绝对位置（兼容 IE8）
+    function getContainerOffset() {
+        var left = 0, top = 0;
+        var el = container;
+        while (el) {
+            left += el.offsetLeft || 0;
+            top += el.offsetTop || 0;
+            el = el.offsetParent;
+        }
+        return { left: left, top: top };
+    }
+
+    // 在给定 X 坐标处对序列数据进行线性插值
+    function interpolateValue(series, x) {
+        var data = series.data;
+        if (!data || data.length === 0) return null;
+
+        for (var i = 0; i < data.length - 1; i++) {
+            var x0 = data[i].x;
+            var x1 = data[i + 1].x;
+            if (x >= x0 && x <= x1) {
+                var y0 = data[i].y;
+                var y1 = data[i + 1].y;
+                if (x1 === x0) return y0;
+                return y0 + (y1 - y0) * (x - x0) / (x1 - x0);
+            }
+        }
+        if (data.length > 0) {
+            if (x < data[0].x) return data[0].y;
+            if (x > data[data.length - 1].x) return data[data.length - 1].y;
+        }
+        return null;
+    }
+
+    function onMouseMove(e) {
+        e = e || window.event;
+
+        // 检查鼠标按键是否被按下（拖拽平移中不更新提示）
+        var isMouseDown = false;
+        if (e.buttons !== undefined) {
+            isMouseDown = e.buttons !== 0;
+        } else if (e.button !== undefined) {
+            isMouseDown = (e.button !== 0);
+        }
+        if (isMouseDown) return;
+
+        // 节流：约 20fps
+        var now = new Date().getTime();
+        if (now - lastUpdate < 50) return;
+        lastUpdate = now;
+
+        var offset = getContainerOffset();
+        var clientX = e.clientX || e.pageX || 0;
+        var clientY = e.clientY || e.pageY || 0;
+        var mouseX = clientX - offset.left;
+        var mouseY = clientY - offset.top;
+
+        // 检查鼠标是否在绘图区内
+        if (mouseX < chart.plotLeft || mouseX > chart.plotLeft + chart.plotWidth ||
+            mouseY < chart.plotTop || mouseY > chart.plotTop + chart.plotHeight) {
+            if (tooltip) tooltip.style.display = 'none';
+            try { xAxis.removePlotLine('mouse-vline'); } catch(ex) {}
+            return;
+        }
+
+        // 将像素坐标转换为轴值（旧版Highcharts无toValue，手动计算）
+        var xExt = xAxis.getExtremes();
+        var xVal = xExt.min + ((mouseX - chart.plotLeft) / (chart.plotWidth || 1)) * (xExt.max - xExt.min);
+
+        // 钳制到当前可视范围
+        if (xVal < xExt.min || xVal > xExt.max) {
+            if (tooltip) tooltip.style.display = 'none';
+            try { xAxis.removePlotLine('mouse-vline'); } catch(ex) {}
+            return;
+        }
+
+        // ---- 更新垂直参考线 ----
+        try { xAxis.removePlotLine('mouse-vline'); } catch(ex) {}
+        xAxis.addPlotLine({
+            id: 'mouse-vline',
+            color: '#FFD700',
+            width: 2,
+            value: xVal,
+            zIndex: 5
+        });
+
+        // ---- 构建工具提示内容 ----
+        var unit = isPower ? ' KW' : ' A';
+        var html = '<div style="font-weight:bold;margin-bottom:5px;color:#FFD700;font-size:13px;">' +
+                   xVal.toFixed(2) + ' 秒</div>';
+
+        // 遍历所有可见序列
+        for (var s = 0; s < chart.series.length; s++) {
+            var series = chart.series[s];
+            if (!series.visible) continue;
+            var yVal = interpolateValue(series, xVal);
+            if (yVal === null) continue;
+
+            var displayY = isPower ? inversePowerValue(yVal) : yVal;
+
+            html += '<div style="margin:2px 0;">';
+            html += '<span style="display:inline-block;width:10px;height:10px;background:' +
+                    series.color + ';margin-right:5px;vertical-align:middle;"></span>';
+            html += '<span style="vertical-align:middle;">' + series.name + ': ' +
+                    displayY.toFixed(3) + unit + '</span>';
+            html += '</div>';
+        }
+
+        // 参考时间行
+        var refTime = chart._referenceTime || '';
+        if (refTime) {
+            html += '<div style="margin-top:5px;padding-top:4px;border-top:1px solid #555577;color:#BBBBBB;font-size:11px;">' +
+                    '设定时间: ' + refTime + '</div>';
+        }
+
+        // ---- 定位工具提示（鼠标右侧偏上） ----
+        if (tooltip) {
+            tooltip.innerHTML = html;
+            tooltip.style.display = 'block';
+
+            var contW = container.offsetWidth || container.clientWidth || 0;
+            var contH = container.offsetHeight || container.clientHeight || 0;
+            var tipW = 200;
+            var tipH = 100;
+
+            var tipLeft = mouseX + 16;
+            var tipTop = mouseY - 30;
+
+            if (tipLeft + tipW > contW) {
+                tipLeft = mouseX - tipW - 10;
+            }
+            if (tipTop < 0) {
+                tipTop = mouseY + 16;
+            }
+            if (tipTop + tipH > contH) {
+                tipTop = contH - tipH - 4;
+            }
+            if (tipLeft < 0) {
+                tipLeft = 4;
+            }
+
+            tooltip.style.left = tipLeft + 'px';
+            tooltip.style.top = tipTop + 'px';
+        }
+    }
+
+    function onMouseLeave() {
+        if (tooltip) tooltip.style.display = 'none';
+        try { xAxis.removePlotLine('mouse-vline'); } catch(ex) {}
+    }
+
+    // 挂载事件（兼容 IE8+）
+    if (container.addEventListener) {
+        container.addEventListener('mousemove', onMouseMove, false);
+        container.addEventListener('mouseleave', onMouseLeave, false);
+    } else if (container.attachEvent) {
+        container.attachEvent('onmousemove', onMouseMove);
+        container.attachEvent('onmouseout', onMouseLeave);
+    }
+}
+
 function updateResetZoomButton(chart) {
     var btn = document.getElementById('btnResetZoom');
     if (!btn) return;
@@ -620,23 +833,7 @@ function createChart(containerId, title, yAxisConfig, seriesData, xMax) {
         },
         yAxis: yAxisConfig,
         tooltip: {
-            shared: true,
-            crosshairs: true,
-            valueDecimals: 3,
-            formatter: function() {
-                var s = '<b>' + this.x.toFixed(2) + ' 秒</b>';
-                for (var i = 0; i < this.points.length; i++) {
-                    var pt = this.points[i];
-                    var displayY = pt.y;
-                    // 功率图表反向变换：显示真实数值
-                    if (this.points[i].series.chart._isPowerChart) {
-                        displayY = inversePowerValue(pt.y);
-                    }
-                    s += '<br/><span style="color:' + pt.series.color + '">■ ' +
-                         pt.series.name + '</span>: ' + displayY.toFixed(3);
-                }
-                return s;
-            }
+            enabled: false
         },
         legend: {
             align: 'center',
@@ -665,6 +862,8 @@ function createChart(containerId, title, yAxisConfig, seriesData, xMax) {
             // 设置鼠标滚轮缩放和拖拽平移
             setupMouseWheelZoom(chart, containerId);
             setupMousePanDrag(chart, containerId);
+            // 设置鼠标追踪（自定义提示框 + 垂直参考线）
+            setupChartMouseTracking(chart, containerId);
         }
         return chart;
     } catch(e) {
@@ -844,7 +1043,8 @@ function buildDetailData(chartKey) {
         seriesData: seriesData,
         thresholdValue: (yAxisType === 'current') ? data.thresholdCurrent : data.thresholdPower,
         xMax: xMax,
-        colors: colors
+        colors: colors,
+        referenceTime: referenceCurveData ? (referenceCurveData.label || '') : ''
     };
 }
 
@@ -1028,6 +1228,14 @@ function loadChartData(dataJson) {
     // 设置双击检测
     setupDblClick();
 
+    // 存储参考时间到各图表（供鼠标追踪提示框使用）
+    var refLabel = referenceCurveData ? (referenceCurveData.label || '') : '';
+    var ckeys = ['chart1', 'chart2', 'chart3', 'chart4'];
+    for (var ck = 0; ck < ckeys.length; ck++) {
+        var ch = charts[ckeys[ck]];
+        if (ch) ch._referenceTime = refLabel;
+    }
+
     if (ds) ds.innerText = '渲染完成 OK';
 }
 
@@ -1070,6 +1278,14 @@ function setReferenceCurve() {
     referenceCurveData = ref;
     document.getElementById('btnSetReference').innerHTML = '已设定参考曲线';
 
+    // 更新所有图表的参考时间（供鼠标追踪提示框使用）
+    var refLabel = ref.label || '';
+    var ckeys2 = ['chart1', 'chart2', 'chart3', 'chart4'];
+    for (var ck2 = 0; ck2 < ckeys2.length; ck2++) {
+        var ch2 = charts[ckeys2[ck2]];
+        if (ch2) ch2._referenceTime = refLabel;
+    }
+
     if (document.getElementById('chkReference').checked) {
         addReferenceSeries();
     }
@@ -1090,8 +1306,12 @@ function addReferenceSeries() {
     removeReferenceSeries();
 
     var ref = referenceCurveData;
+    var showA = document.getElementById('chkCurrentA').checked;
+    var showB = document.getElementById('chkCurrentB').checked;
+    var showC = document.getElementById('chkCurrentC').checked;
+    var showPower = document.getElementById('chkPower').checked;
 
-    // 电流图表（chart1, chart3）: 参考曲线 A/B/C
+    // 电流图表（chart1, chart3）: 参考曲线 A/B/C，跟随对应相 checkbox 状态
     var currentCharts = [charts.chart1, charts.chart3];
     for (var ci = 0; ci < currentCharts.length; ci++) {
         var cChart = currentCharts[ci];
@@ -1103,7 +1323,8 @@ function addReferenceSeries() {
                 data: ref.currentA,
                 lineWidth: 1.5,
                 dashStyle: 'dash',
-                marker: { enabled: false }
+                marker: { enabled: false },
+                visible: showA
             }, false);
         }
         if (ref.currentB) {
@@ -1113,7 +1334,8 @@ function addReferenceSeries() {
                 data: ref.currentB,
                 lineWidth: 1.5,
                 dashStyle: 'dash',
-                marker: { enabled: false }
+                marker: { enabled: false },
+                visible: showB
             }, false);
         }
         if (ref.currentC) {
@@ -1123,13 +1345,14 @@ function addReferenceSeries() {
                 data: ref.currentC,
                 lineWidth: 1.5,
                 dashStyle: 'dash',
-                marker: { enabled: false }
+                marker: { enabled: false },
+                visible: showC
             }, false);
         }
         try { cChart.redraw(); } catch(e) {}
     }
 
-    // 功率图表（chart2, chart4）: 参考曲线 功率
+    // 功率图表（chart2, chart4）: 参考曲线 功率，跟随功率 checkbox 状态
     var powerCharts = [charts.chart2, charts.chart4];
     for (var pi = 0; pi < powerCharts.length; pi++) {
         var pChart = powerCharts[pi];
@@ -1137,11 +1360,11 @@ function addReferenceSeries() {
         if (ref.power) {
             pChart.addSeries({
                 name: '参考曲线：功率',
-                color: colors.refPower,
+                color: '#FFFFFF',
                 data: transformPowerData(ref.power),
-                lineWidth: 1.5,
-                dashStyle: 'dash',
-                marker: { enabled: false }
+                lineWidth: 2,
+                marker: { enabled: false },
+                visible: showPower
             }, false);
             try { pChart.redraw(); } catch(e) {}
         }
@@ -1173,8 +1396,9 @@ function toggleCheckbox() {
     var showC = document.getElementById('chkCurrentC').checked;
     var showPower = document.getElementById('chkPower').checked;
     var showThreshold = document.getElementById('chkThreshold').checked;
+    var showRef = document.getElementById('chkReference').checked;
 
-    // 电流图表（chart1, chart3）
+    // 电流图表（chart1, chart3）: 主曲线 + 参考曲线
     var currentCharts = [charts.chart1, charts.chart3];
     for (var c = 0; c < currentCharts.length; c++) {
         var chart = currentCharts[c];
@@ -1185,10 +1409,13 @@ function toggleCheckbox() {
             if (name === '电流(A)') { if (showA) s[i].show(); else s[i].hide(); }
             else if (name === '电流(B)') { if (showB) s[i].show(); else s[i].hide(); }
             else if (name === '电流(C)') { if (showC) s[i].show(); else s[i].hide(); }
+            else if (name === '参考曲线：电流(A)') { if (showA && showRef) s[i].show(); else s[i].hide(); }
+            else if (name === '参考曲线：电流(B)') { if (showB && showRef) s[i].show(); else s[i].hide(); }
+            else if (name === '参考曲线：电流(C)') { if (showC && showRef) s[i].show(); else s[i].hide(); }
         }
     }
 
-    // 功率图表（chart2, chart4）
+    // 功率图表（chart2, chart4）: 主曲线 + 参考曲线
     var powerCharts = [charts.chart2, charts.chart4];
     for (var d = 0; d < powerCharts.length; d++) {
         var pChart = powerCharts[d];
@@ -1197,6 +1424,7 @@ function toggleCheckbox() {
         for (var j = 0; j < ps.length; j++) {
             var name2 = ps[j].name;
             if (name2 === '功率') { if (showPower) ps[j].show(); else ps[j].hide(); }
+            else if (name2 === '参考曲线：功率') { if (showPower && showRef) ps[j].show(); else ps[j].hide(); }
         }
     }
 
