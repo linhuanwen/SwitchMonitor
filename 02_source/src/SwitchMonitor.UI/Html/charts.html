@@ -8,7 +8,7 @@
 html, body {
     width: 100%;
     height: 100%;
-    background: #0a0a1e;
+    background: #3c3c3c;
     color: #dddddd;
     font: 12px SimSun, sans-serif;
     overflow: hidden;
@@ -16,9 +16,9 @@ html, body {
 
 /* 工具栏 */
 .toolbar {
-    background: #1a1a3a;
+    background: #2d2d2d;
     padding: 4px 10px;
-    border-bottom: 1px solid #3a3a6e;
+    border-bottom: 1px solid #555555;
     height: 28px;
     line-height: 28px;
     position: relative;
@@ -85,6 +85,47 @@ html, body {
     line-height: 1.6;
 }
 
+/* 诊断结论条 */
+.diag-bar {
+    position: absolute;
+    top: 36px;
+    left: 0;
+    right: 0;
+    height: 28px;
+    line-height: 28px;
+    padding: 0 12px;
+    font-size: 12px;
+    z-index: 10;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+.diag-bar-normal { background: #2a3a2a; color: #55FF55; }
+.diag-bar-warning { background: #4a4a20; color: #FFD54F; }
+.diag-bar-alarm { background: #4a3020; color: #FF9800; }
+.diag-bar-fault { background: #4a2020; color: #FF4444; }
+.diag-bar-unknown { background: #2a2a2a; color: #888888; }
+.diag-dot {
+    display: inline;
+    margin-right: 6px;
+    font-size: 14px;
+    vertical-align: middle;
+    position: relative;
+    top: -1px;
+}
+.diag-dot-normal { color: #55FF55; }
+.diag-dot-unknown { color: #888888; }
+
+/* 诊断条出现后，图表网格往下移 */
+.chart-grid {
+    position: absolute;
+    top: 64px;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    overflow: hidden;
+}
+
 /* 空状态 */
 .empty-state {
     position: absolute;
@@ -128,11 +169,14 @@ html, body {
     <label><input type="checkbox" id="chkPower" checked onchange="toggleCheckbox()">功率</label>
     <label style="margin-left:16px;"><input type="checkbox" id="chkThreshold" checked onchange="toggleCheckbox()">报警上限</label>
     <label style="margin-left:16px;"><input type="checkbox" id="chkReference" onchange="toggleReference()">参考曲线</label>
+    <label style="margin-left:8px;"><input type="checkbox" id="chkBaseline" onchange="toggleBaseline()">诊断基线</label>
     <button id="btnSetReference" disabled onclick="setReferenceCurve()">设定参考曲线</button>
     <button id="btnResetZoom" disabled onclick="resetAllZoom()">重置缩放</button>
     <button id="btnExportPng" disabled onclick="exportPng()">导出图片</button>
     <button id="btnExportCsv" disabled onclick="exportCsv()">导出CSV</button>
 </div>
+
+<div class="diag-bar diag-bar-unknown" id="diagBar" title=""><span class="diag-dot diag-dot-unknown">&#9679;</span>未诊断</div>
 
 <div class="chart-grid" id="chartGrid">
     <div class="chart-row">
@@ -160,6 +204,9 @@ html, body {
 </div>
 
 <script>
+// ===== IE8 console polyfill（WebBrowser ScriptErrorsSuppressed=true 环境下需此项） =====
+window.console = window.console || { log: function(){}, warn: function(){}, error: function(){} };
+
 // ===== 显示诊断错误 =====
 function showError(msg) {
     var el = document.getElementById('errMsg');
@@ -224,7 +271,8 @@ if (typeof JSON === 'undefined') {
 // ===== 全局变量 =====
 var charts = {};
 var chartDataCache = null;
-var referenceCurveData = null;
+var referenceCurveData = {};   // 按 switchId 索引的参考曲线字典
+var baselineStore = {};       // 按 switchId 索引的诊断基线数据
 
 // 默认配色（会被 C# 传入的 config 覆盖）
 var colors = {
@@ -233,8 +281,8 @@ var colors = {
     currentC: '#CC44CC',
     power: '#FFD700',
     thresholdLine: '#FF4444',
-    background: '#0a0a1e',
-    gridLine: '#3a3a5a',
+    background: '#3c3c3c',
+    gridLine: '#6a6a6a',
     textColor: '#CCCCCC',
     refCurrentA: '#00E5E5',
     refCurrentB: '#FF5555',
@@ -1044,8 +1092,43 @@ function buildDetailData(chartKey) {
         thresholdValue: (yAxisType === 'current') ? data.thresholdCurrent : data.thresholdPower,
         xMax: xMax,
         colors: colors,
-        referenceTime: referenceCurveData ? (referenceCurveData.label || '') : ''
+        referenceTime: getCurrentReference() ? (getCurrentReference().label || '') : ''
     };
+}
+
+// ===== D5: 渲染诊断结论条（纯 DOM 操作，不用 Highcharts） =====
+function renderDiagnosisBar(diagnosis) {
+    var bar = document.getElementById('diagBar');
+    if (!bar) return;
+
+    // 未诊断（无 diagnosis 或 null）
+    if (!diagnosis) {
+        bar.className = 'diag-bar diag-bar-unknown';
+        bar.innerHTML = '<span class="diag-dot diag-dot-unknown">●</span>未诊断';
+        bar.title = '';
+        return;
+    }
+
+    var level = diagnosis.level || '正常';
+    var items = diagnosis.items || [];
+
+    // 级别→CSS 类映射
+    var cssSuffix;
+    if (level === '预警') cssSuffix = 'warning';
+    else if (level === '报警') cssSuffix = 'alarm';
+    else if (level === '故障') cssSuffix = 'fault';
+    else cssSuffix = 'normal';
+
+    if (level === '正常') {
+        bar.className = 'diag-bar diag-bar-normal';
+        bar.innerHTML = '<span class="diag-dot diag-dot-normal">●</span>诊断正常';
+        bar.title = '';
+    } else {
+        bar.className = 'diag-bar diag-bar-' + cssSuffix;
+        var text = items.join('；');
+        bar.innerHTML = text;
+        bar.title = text;
+    }
 }
 
 // ===== 加载图表数据（由 C# 通过 InvokeScript 调用） =====
@@ -1220,23 +1303,75 @@ function loadChartData(dataJson) {
         }
     }
 
-    // 如果参考曲线已勾选且有参考数据，叠加参考曲线
-    if (document.getElementById('chkReference').checked && referenceCurveData) {
+    // 如果参考曲线已勾选且有当前转辙机的参考数据，叠加参考曲线
+    if (document.getElementById('chkReference').checked && getCurrentReference()) {
         addReferenceSeries();
     }
+
+    // 更新按钮状态，反映当前转辙机是否已有参考曲线
+    updateReferenceButton();
 
     // 设置双击检测
     setupDblClick();
 
     // 存储参考时间到各图表（供鼠标追踪提示框使用）
-    var refLabel = referenceCurveData ? (referenceCurveData.label || '') : '';
+    var curRef = getCurrentReference();
+    var refLabel = curRef ? (curRef.label || '') : '';
     var ckeys = ['chart1', 'chart2', 'chart3', 'chart4'];
     for (var ck = 0; ck < ckeys.length; ck++) {
         var ch = charts[ckeys[ck]];
         if (ch) ch._referenceTime = refLabel;
     }
 
+    // D5: 渲染诊断结论条
+    renderDiagnosisBar(data.diagnosis || null);
+
+    // D6: 自动加载参考曲线（如果 chartData 中包含 refCurve 字段）
+    if (data.refCurve) {
+        loadRefCurveFromBackend(data.refCurve, data.switchId);
+        // 如果参考曲线复选框已勾选，立即叠加显示
+        if (document.getElementById('chkReference').checked) {
+            addReferenceSeries();
+        }
+    }
+
+    // D7: 存储并自动叠加诊断基线
+    if (data.baseline) {
+        baselineStore[data.switchId] = data.baseline;
+        // 如果基线复选框已勾选，立即叠加显示
+        if (document.getElementById('chkBaseline').checked) {
+            addBaselineLines();
+        }
+    }
+
     if (ds) ds.innerText = '渲染完成 OK';
+}
+
+// ===== D6: 从后端加载参考曲线并存入 referenceCurveData =====
+function loadRefCurveFromBackend(refCurveData, switchId) {
+    if (!refCurveData || !refCurveData.values || !switchId) return;
+
+    // 转换为前端 referenceCurveData 格式（[t, v] 对已由 C# 构建）
+    // D6 参考曲线目前仅包含功率数据
+    // 检查是否已有用户手动设定的参考曲线（用户设定优先级更高）
+    if (referenceCurveData[switchId]) {
+        // 已有手动设定的参考曲线，保留用户版本
+        return;
+    }
+
+    var ref = {
+        currentA: null,
+        currentB: null,
+        currentC: null,
+        power: refCurveData.values,  // [[t, v], ...] 数组
+        label: switchId + ' D6参考曲线'
+    };
+
+    referenceCurveData[switchId] = ref;
+
+    // 更新按钮文本
+    var label = chartDataCache ? (chartDataCache.switchLabel || switchId) : switchId;
+    document.getElementById('btnSetReference').innerHTML = label + ' 已载入参考';
 }
 
 // ===== 重置所有图表缩放 =====
@@ -1258,9 +1393,32 @@ function resetAllZoom() {
     document.getElementById('btnResetZoom').disabled = true;
 }
 
+// ===== 更新参考曲线按钮状态 =====
+function updateReferenceButton() {
+    var btn = document.getElementById('btnSetReference');
+    if (!btn) return;
+    var curRef = getCurrentReference();
+    if (curRef) {
+        var label = chartDataCache.switchLabel || chartDataCache.switchId || '';
+        btn.innerHTML = label + ' 已设定参考曲线';
+    } else {
+        btn.innerHTML = '设定参考曲线';
+    }
+}
+
+// ===== 获取当前转辙机的参考曲线 =====
+function getCurrentReference() {
+    if (!chartDataCache) return null;
+    var sid = chartDataCache.switchId;
+    if (!sid) return null;
+    return referenceCurveData[sid] || null;
+}
+
 // ===== 设定参考曲线 =====
 function setReferenceCurve() {
     if (!chartDataCache) return;
+    var sid = chartDataCache.switchId;
+    if (!sid) return;
 
     var ref = {
         currentA: null, currentB: null, currentC: null, power: null, label: ''
@@ -1275,8 +1433,12 @@ function setReferenceCurve() {
         ref.label = (ce.datetime || '') + ' (参考)';
     }
 
-    referenceCurveData = ref;
-    document.getElementById('btnSetReference').innerHTML = '已设定参考曲线';
+    // 按转辙机号存储参考曲线
+    referenceCurveData[sid] = ref;
+
+    // 更新按钮文本，显示当前转辙机号
+    var label = chartDataCache.switchLabel || sid;
+    document.getElementById('btnSetReference').innerHTML = label + ' 已设定参考曲线';
 
     // 更新所有图表的参考时间（供鼠标追踪提示框使用）
     var refLabel = ref.label || '';
@@ -1293,7 +1455,7 @@ function setReferenceCurve() {
 
 // ===== 参考曲线显隐切换 =====
 function toggleReference() {
-    if (document.getElementById('chkReference').checked && referenceCurveData) {
+    if (document.getElementById('chkReference').checked && getCurrentReference()) {
         addReferenceSeries();
     } else {
         removeReferenceSeries();
@@ -1302,10 +1464,10 @@ function toggleReference() {
 
 // ===== 添加参考曲线到图表 =====
 function addReferenceSeries() {
-    if (!referenceCurveData) return;
+    var ref = getCurrentReference();
+    if (!ref) return;
     removeReferenceSeries();
 
-    var ref = referenceCurveData;
     var showA = document.getElementById('chkCurrentA').checked;
     var showB = document.getElementById('chkCurrentB').checked;
     var showC = document.getElementById('chkCurrentC').checked;
@@ -1389,6 +1551,102 @@ function removeReferenceSeries() {
     }
 }
 
+// ===== D7: 诊断基线显隐切换 =====
+function toggleBaseline() {
+    if (document.getElementById('chkBaseline').checked && getCurrentBaseline()) {
+        addBaselineLines();
+    } else {
+        removeBaselineLines();
+    }
+}
+
+// ===== D7: 获取当前转辙机的诊断基线 =====
+function getCurrentBaseline() {
+    if (!chartDataCache) return null;
+    var sid = chartDataCache.switchId;
+    if (!sid) return null;
+    return baselineStore[sid] || null;
+}
+
+// ===== D7: 为功率图表添加基线水平线 + 时长垂直线 =====
+function addBaselineLines() {
+    var bl = getCurrentBaseline();
+    if (!bl) return;
+    removeBaselineLines();
+
+    // 功率图表（chart2, chart4）: 4 条水平基线
+    var powerCharts = [charts.chart2, charts.chart4];
+    var powerLines = [
+        { id: 'baseline-spike',  value: bl.refSpikePeak,  color: '#FF9800', label: '尖峰 '  + bl.refSpikePeak.toFixed(2)  + ' kW' },
+        { id: 'baseline-unlock', value: bl.refUnlockMean, color: '#00BCD4', label: '解锁 ' + bl.refUnlockMean.toFixed(2) + ' kW' },
+        { id: 'baseline-conv',   value: bl.refConvMean,   color: '#4CAF50', label: '转换 '   + bl.refConvMean.toFixed(2)   + ' kW' },
+        { id: 'baseline-tail',   value: bl.refTailMean,   color: '#9C27B0', label: '缓放 '  + bl.refTailMean.toFixed(2)  + ' kW' }
+    ];
+
+    for (var pi = 0; pi < powerCharts.length; pi++) {
+        var pChart = powerCharts[pi];
+        if (!pChart || !pChart.yAxis || !pChart.yAxis[0]) continue;
+        var yAxis = pChart.yAxis[0];
+        for (var i = 0; i < powerLines.length; i++) {
+            var line = powerLines[i];
+            yAxis.addPlotLine({
+                id: line.id,
+                color: line.color,
+                dashStyle: 'dot',
+                width: 1.5,
+                value: transformPowerValue(line.value),
+                label: {
+                    text: line.label,
+                    style: { color: line.color, fontSize: '10px' },
+                    align: 'left',
+                    x: 4
+                },
+                zIndex: 4
+            });
+        }
+    }
+
+    // 所有图表: 时长垂直线
+    var allCharts = [charts.chart1, charts.chart2, charts.chart3, charts.chart4];
+    for (var ac = 0; ac < allCharts.length; ac++) {
+        var aChart = allCharts[ac];
+        if (!aChart || !aChart.xAxis || !aChart.xAxis[0]) continue;
+        aChart.xAxis[0].addPlotLine({
+            id: 'baseline-duration',
+            color: '#FFFFFF',
+            dashStyle: 'dash',
+            width: 1.5,
+            value: bl.refDurationSec,
+            label: {
+                text: '基线时长 ' + bl.refDurationSec.toFixed(2) + 's',
+                style: { color: '#FFFFFF', fontSize: '10px' },
+                align: 'right',
+                rotation: 0,
+                y: 12
+            },
+            zIndex: 4
+        });
+    }
+}
+
+// ===== D7: 移除诊断基线 plotLines =====
+function removeBaselineLines() {
+    var lineIds = ['baseline-spike', 'baseline-unlock', 'baseline-conv', 'baseline-tail', 'baseline-duration'];
+    var keys = ['chart1', 'chart2', 'chart3', 'chart4'];
+    for (var k = 0; k < keys.length; k++) {
+        var chart = charts[keys[k]];
+        if (!chart) continue;
+        for (var i = 0; i < lineIds.length; i++) {
+            try {
+                if (chart.yAxis && chart.yAxis[0]) chart.yAxis[0].removePlotLine(lineIds[i]);
+            } catch(e) {}
+            try {
+                if (chart.xAxis && chart.xAxis[0]) chart.xAxis[0].removePlotLine(lineIds[i]);
+            } catch(e) {}
+        }
+    }
+}
+
 // ===== 复选框切换 =====
 function toggleCheckbox() {
     var showA = document.getElementById('chkCurrentA').checked;
@@ -1464,7 +1722,7 @@ function destroyCharts() {
 // ===== 清空图表 =====
 function clearCharts() {
     destroyCharts();
-    referenceCurveData = null;
+    // 注意：不清除 referenceCurveData 字典，参考曲线是按转辙机号持久保留的
     document.getElementById('emptyState').style.display = 'block';
     document.getElementById('btnExportPng').disabled = true;
     document.getElementById('btnExportCsv').disabled = true;
@@ -1472,6 +1730,8 @@ function clearCharts() {
     document.getElementById('btnSetReference').innerHTML = '设定参考曲线';
     document.getElementById('btnResetZoom').disabled = true;
     chartDataCache = null;
+    // D5: 重置诊断条
+    renderDiagnosisBar(null);
 }
 
 // ===== 更新阈值 =====

@@ -1,6 +1,6 @@
 # 道岔监测系统 PRD
 
-> **版本**: V1.0
+> **版本**: V2.0
 > **日期**: 2026-07-04
 > **目标平台**: 研华 610H 工控机, Windows XP, .NET Framework 4.0
 
@@ -454,7 +454,7 @@ NLog.dll / nlog.config         # 日志
 
 ### 开发数据
 
-- 测试用 SwitchCurve 数据: `shuju/sanshuibei/SwitchCurve(*).dat`（16 个文件，8 组道岔）
-- 测试用 Digit 数据: `shuju/本地接收目录扳动/Digit(*).dat`（84 个文件）
-- 车站配置: `shuju/Station_SSB/`（三水北站）
-- 已解析的参照 CSV 及配置报告均在 `shuju/` 子目录下
+- 测试用 SwitchCurve 数据: `03_raw_data/sanshuibei/SwitchCurve(*).dat`（16 个文件，8 组道岔）
+- 测试用 Digit 数据: `03_raw_data/本地接收目录扳动/Digit(*).dat`（84 个文件）
+- 车站配置: `03_raw_data/Station_SSB/`（三水北站）
+- 已解析的参照 CSV 及配置报告位于旧 `shuju/` 目录，未迁移

@@ -76,6 +76,17 @@ namespace SwitchMonitor.Data
         }
 
         /// <summary>
+        /// 获取所有已索引的转辙机 ID 列表
+        /// </summary>
+        public List<string> GetAllSwitchIds()
+        {
+            lock (_lock)
+            {
+                return new List<string>(_index.Keys);
+            }
+        }
+
+        /// <summary>
         /// 获取某转辙机所有有数据的日期列表
         /// </summary>
         public List<string> GetDates(string switchId)
@@ -160,6 +171,140 @@ namespace SwitchMonitor.Data
                 json = _serializer.Serialize(_index);
             }
             File.WriteAllText(indexPath, json, Encoding.UTF8);
+        }
+
+        // ── D4: 诊断结果存储 ──
+
+        /// <summary>
+        /// 保存某天的诊断结果到 .diag.json 并更新 alarms_index.json。
+        /// 与 SaveDayData 配套使用：先写日数据，再写诊断结果。
+        /// </summary>
+        public void SaveDayDiagnosis(string switchId, string date, List<EventDiagnosis> diagnoses)
+        {
+            // 确保目录存在
+            string dir = Path.Combine(_parsedDataDir, switchId);
+            if (!Directory.Exists(dir))
+                Directory.CreateDirectory(dir);
+
+            // 写入 .diag.json（与 {date}.json 并列）
+            string filePath = Path.Combine(dir, date + ".diag.json");
+            string json = _serializer.Serialize(diagnoses);
+            File.WriteAllText(filePath, json, Encoding.UTF8);
+
+            // 更新 alarms_index.json（与 index.json 在同一锁内）
+            UpdateAlarmsIndex(switchId, date, diagnoses);
+        }
+
+        /// <summary>
+        /// 加载某天的诊断结果。文件缺失 → 返回空列表。
+        /// </summary>
+        public List<EventDiagnosis> LoadDayDiagnosis(string switchId, string date)
+        {
+            string filePath = Path.Combine(_parsedDataDir, switchId, date + ".diag.json");
+            if (!File.Exists(filePath))
+                return new List<EventDiagnosis>();
+
+            try
+            {
+                string json = File.ReadAllText(filePath, Encoding.UTF8);
+                var list = _serializer.Deserialize<List<EventDiagnosis>>(json);
+                return list ?? new List<EventDiagnosis>();
+            }
+            catch
+            {
+                return new List<EventDiagnosis>();
+            }
+        }
+
+        /// <summary>
+        /// 加载 alarms_index.json 全文（线程安全）。
+        /// 文件缺失 → 返回空字典。
+        /// </summary>
+        public Dictionary<string, Dictionary<string, Dictionary<string, int>>> LoadAlarmsIndex()
+        {
+            lock (_lock)
+            {
+                return LoadAlarmsIndexInternal();
+            }
+        }
+
+        /// <summary>
+        /// 更新 alarms_index.json：统计某天非正常事件计数。
+        /// 线程安全（在 _lock 内操作）。
+        /// </summary>
+        private void UpdateAlarmsIndex(string switchId, string date, List<EventDiagnosis> diagnoses)
+        {
+            // 统计该日非正常事件计数
+            int warningCount = 0;
+            int alarmCount = 0;
+            int faultCount = 0;
+
+            foreach (var d in diagnoses)
+            {
+                switch (d.Level)
+                {
+                    case "预警": warningCount++; break;
+                    case "报警": alarmCount++; break;
+                    case "故障": faultCount++; break;
+                }
+            }
+
+            lock (_lock)
+            {
+                // 加载/初始化 alarms_index
+                var alarmsIndex = LoadAlarmsIndexInternal();
+
+                // 如果当天没有任何非正常事件，删除该日期条目（如存在）
+                if (warningCount == 0 && alarmCount == 0 && faultCount == 0)
+                {
+                    if (alarmsIndex.ContainsKey(switchId))
+                    {
+                        alarmsIndex[switchId].Remove(date);
+                        if (alarmsIndex[switchId].Count == 0)
+                            alarmsIndex.Remove(switchId);
+                    }
+                }
+                else
+                {
+                    // 确保 switchId 条目存在
+                    if (!alarmsIndex.ContainsKey(switchId))
+                        alarmsIndex[switchId] = new Dictionary<string, Dictionary<string, int>>();
+
+                    // 写入三个键（恒输出，含 0）
+                    alarmsIndex[switchId][date] = new Dictionary<string, int>
+                    {
+                        { "预警", warningCount },
+                        { "报警", alarmCount },
+                        { "故障", faultCount }
+                    };
+                }
+
+                // 持久化
+                string indexPath = Path.Combine(_parsedDataDir, "alarms_index.json");
+                string json = _serializer.Serialize(alarmsIndex);
+                File.WriteAllText(indexPath, json, Encoding.UTF8);
+            }
+        }
+
+        /// <summary>
+        /// 内部读取 alarms_index.json（无锁，由调用方持有 _lock）。
+        /// </summary>
+        private Dictionary<string, Dictionary<string, Dictionary<string, int>>> LoadAlarmsIndexInternal()
+        {
+            string indexPath = Path.Combine(_parsedDataDir, "alarms_index.json");
+            if (!File.Exists(indexPath))
+                return new Dictionary<string, Dictionary<string, Dictionary<string, int>>>();
+
+            try
+            {
+                string json = File.ReadAllText(indexPath, Encoding.UTF8);
+                var index = _serializer.Deserialize<Dictionary<string, Dictionary<string, Dictionary<string, int>>>>(json);
+                return index ?? new Dictionary<string, Dictionary<string, Dictionary<string, int>>>();
+            }
+            catch
+            {
+                return new Dictionary<string, Dictionary<string, Dictionary<string, int>>>();
+            }
         }
     }
 }

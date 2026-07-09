@@ -1,5 +1,7 @@
 # Slice 2: CSM2010 二进制解析 → JSON 管道
 
+> **状态（2026-07-08 代码审核）**: ✅ 已实现。缺口：坏行静默跳过、未记警告日志；采样值未强制 round 3 位小数（依赖 CSV 源精度）。另有未提交修正：`HEADER_SIZE` 42→14（parsed_data 已全量重新生成）。
+
 ## Type
 
 AFK
@@ -65,8 +67,8 @@ Slice 1（项目脚手架 + 数据模型）
 ### 数据来源
 
 本项目使用已有 **CSV 导出文件** 作为数据输入（CSM2010 的原生二进制 .dat 暂不直读，原因见 Further notes）：
-- 电流文件：`shuju/sanshuibei/SwitchCurve(0).csv` 等（1000 events × 3 相）
-- 功率文件：`shuju/sanshuibei/SwitchCurve(3).csv` 等（3000 events × 1 相）
+- 电流文件：`03_raw_data/sanshuibei/SwitchCurve(0).csv` 等（1000 events × 3 相）
+- 功率文件：`03_raw_data/sanshuibei/SwitchCurve(3).csv` 等（3000 events × 1 相）
 - CSV 格式：`timestamp,datetime,phase,s0,s1,...,s789`
 
 ### 文件配对

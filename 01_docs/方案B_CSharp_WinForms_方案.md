@@ -158,7 +158,7 @@ new Highcharts.Chart({
 ## 四、目录结构
 
 ```
-d:\SwitchMonitor\
+d:\Vibe coding\04 DCjiance\SwitchMonitor\
 ├── SwitchMonitor.sln                    # VS2010 解决方案
 ├── config.json                          # 系统配置文件
 │

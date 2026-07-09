@@ -615,14 +615,14 @@ namespace SwitchMonitor.Tests
             var candidates = new[]
             {
                 // net40 输出: bin/Debug/net40/ → up 4 = project root, up 5 = solution root
-                Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", "shuju", "sanshuibei")),
-                Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", "..", "shuju", "sanshuibei")),
-                // 直接使用绝对路径作为兜底
-                @"d:\tool\UltraEdit\shuju\sanshuibei",
+                Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", "03_raw_data", "sanshuibei")),
+                Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", "..", "03_raw_data", "sanshuibei")),
+                // 相对路径兜底
+                @"..\..\..\..\03_raw_data\sanshuibei",
             };
             foreach (var c in candidates)
                 if (Directory.Exists(c)) return c;
-            throw new DirectoryNotFoundException("找不到 shuju/sanshuibei/");
+            throw new DirectoryNotFoundException("找不到 03_raw_data/sanshuibei/");
         }
 
         static string FindMappingConfig()

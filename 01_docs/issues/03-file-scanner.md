@@ -1,5 +1,7 @@
 # Slice 3: 文件扫描 + 增量采集服务
 
+> **状态（2026-07-08 代码审核）**: ❌ 未实现。主线以菜单"数据→导入源数据"手动全量导入替代（BackgroundWorker 后台执行）；无 `FileSystemWatcher`/`_processed.json`/定时扫描，config 中 `scanInterval` 为死配置。旧 GDI 归档版曾实现过（`08_archive_gdi/SwitchMonitor.Data/FileWatcherService.cs`），未迁移。
+
 ## Type
 
 AFK

@@ -22,7 +22,7 @@ from collections import defaultdict
 
 # ── CSM2010 binary constants ──────────────────────────────────────────
 BLOCK_SIZE = 4014
-HEADER_SIZE = 42
+HEADER_SIZE = 14
 DATA_START = 100032
 
 SAMPLE_INTERVAL = 0.04

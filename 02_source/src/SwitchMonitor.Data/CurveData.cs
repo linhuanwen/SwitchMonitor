@@ -115,6 +115,11 @@ namespace SwitchMonitor.Data
         public string RefCurrentB { get; set; }
         public string RefCurrentC { get; set; }
         public string RefPower { get; set; }
+
+        // D5: 诊断级别颜色
+        public string LevelWarning { get; set; }
+        public string LevelAlarm { get; set; }
+        public string LevelFault { get; set; }
     }
 
     /// <summary>
@@ -138,6 +143,70 @@ namespace SwitchMonitor.Data
     }
 
     /// <summary>
+    /// 诊断配置节
+    /// </summary>
+    public class DiagnosisConfig
+    {
+        /// <summary>是否启用自动诊断</summary>
+        public bool Enabled { get; set; }
+
+        /// <summary>Rules 目录路径（相对或绝对）</summary>
+        public string RulesDir { get; set; }
+
+        public DiagnosisConfig()
+        {
+            Enabled = true;
+            RulesDir = "Rules";
+        }
+    }
+
+    /// <summary>
+    /// 单条诊断结果条目（存储/序列化用 POCO，Data 项目定义，Diagnosis 项目填充）。
+    /// 与 Diagnosis.DiagnosisResult 平行，避免 Data → Diagnosis 反向依赖。
+    /// </summary>
+    public class DiagnosisItem
+    {
+        /// <summary>规则 ID，如 "R1"</summary>
+        public string RuleId { get; set; }
+
+        /// <summary>规则名称，如 "动作超时/未完成"</summary>
+        public string RuleName { get; set; }
+
+        /// <summary>诊断级别："正常"/"预警"/"报警"/"故障"</summary>
+        public string Level { get; set; }
+
+        /// <summary>中文结论描述（含数值）</summary>
+        public string Description { get; set; }
+
+        /// <summary>异常值</summary>
+        public double Value { get; set; }
+
+        /// <summary>参考值</summary>
+        public double Reference { get; set; }
+    }
+
+    /// <summary>
+    /// 一次事件诊断的完整结果（存储 POCO，Data 项目定义）。
+    /// 直接序列化为 .diag.json 格式，供 UI 读取。
+    /// </summary>
+    public class EventDiagnosis
+    {
+        /// <summary>Unix 时间戳（秒）</summary>
+        public long Timestamp { get; set; }
+
+        /// <summary>综合诊断级别</summary>
+        public string Level { get; set; }
+
+        /// <summary>命中的规则列表（正常事件为空）</summary>
+        public List<DiagnosisItem> Results { get; set; }
+
+        public EventDiagnosis()
+        {
+            Results = new List<DiagnosisItem>();
+        }
+    }
+
+    /// <summary>
     /// 系统主配置
     /// </summary>
     public class AppConfig
@@ -149,11 +218,13 @@ namespace SwitchMonitor.Data
         public AlarmThresholdsConfig AlarmThresholds { get; set; }
         public ChartColorsConfig ChartColors { get; set; }
         public UiConfig Ui { get; set; }
+        public DiagnosisConfig Diagnosis { get; set; }
 
         public AppConfig()
         {
             SwitchGroups = new List<SwitchGroup>();
             ScanInterval = 5;
+            Diagnosis = new DiagnosisConfig();
         }
     }
 }

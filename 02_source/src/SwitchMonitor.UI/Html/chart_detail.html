@@ -8,7 +8,7 @@
 html, body {
     width: 100%;
     height: 100%;
-    background: #000000;
+    background: #3c3c3c;
     color: #CCCCCC;
     font: 12px SimSun, sans-serif;
     overflow: hidden;
@@ -16,7 +16,7 @@ html, body {
 
 /* 工具栏 */
 .toolbar {
-    background: #333333;
+    background: #2d2d2d;
     padding: 6px 12px;
     border-bottom: 1px solid #555555;
     height: 26px;
@@ -495,7 +495,7 @@ function initChart(dataJson) {
         chartColors = {
             currentA: '#FF5555', currentB: '#00E5E5', currentC: '#5599FF',
             power: '#FFBB33', thresholdLine: '#FF4444',
-            background: '#000000', gridLine: '#555577',
+            background: '#3c3c3c', gridLine: '#6a6a6a',
             textColor: '#CCCCCC'
         };
     }
@@ -588,7 +588,7 @@ function initChart(dataJson) {
         chart: {
             renderTo: 'detailChart',
             type: 'spline',
-            backgroundColor: chartColors.background || '#000000',
+            backgroundColor: chartColors.background || '#3c3c3c',
             animation: false,
             marginRight: 30,
             marginBottom: 40

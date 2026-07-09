@@ -1,5 +1,7 @@
 # Slice 9: 道岔映射配置
 
+> **状态（2026-07-08 代码审核）**: ❌ 未实现。主线无 `switch_mapping` 加载代码，名称直接取 `config.json` 的 switchGroups Label（相当于降级策略常态化）。`05_production_data/Config/switch_mapping.json` 为旧 GDI 版遗留，顶层键 `fileMapping` 与本 issue 规格（`switchMapping`/`file_N`）不一致。
+
 ## Type
 
 AFK

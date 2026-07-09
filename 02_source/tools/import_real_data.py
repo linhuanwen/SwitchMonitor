@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-将 shuju/ 目录下的真实数据导入 switch_test.db。
+将 03_raw_data/ 目录下的真实数据导入 switch_test.db。
 
-用法: python scripts/import_real_data.py
+用法: python import_real_data.py
 """
 import sqlite3
 import struct
@@ -11,8 +11,10 @@ from pathlib import Path
 from datetime import datetime
 from collections import defaultdict
 
-DB_PATH = Path(__file__).parent.parent / 'Data' / 'switch_test.db'
-SHUJU = Path(__file__).parent.parent / 'shuju'
+# 路径说明：脚本位于 02_source/tools/，数据库在 04_tests/Data/，原始数据在 03_raw_data/
+_PROJECT = Path(__file__).parent.parent.parent
+DB_PATH = _PROJECT / '04_tests' / 'Data' / 'switch_test.db'
+SHUJU = _PROJECT / '03_raw_data'
 
 
 def parse_digit_file(path):

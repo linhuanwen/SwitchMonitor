@@ -4,8 +4,8 @@
 Parse CSM2010 switch curve binary .dat files to CSV.
 
 Usage:
-    python parse_csm2010.py shuju/SwitchCurve(0).dat
-    python parse_csm2010.py shuju/SwitchCurve(0).dat output.csv
+    python parse_csm2010.py ../03_raw_data/sanshuibei/SwitchCurve(0).dat
+    python parse_csm2010.py ../03_raw_data/sanshuibei/SwitchCurve(0).dat output.csv
 """
 
 import struct
@@ -15,7 +15,7 @@ from datetime import datetime
 from pathlib import Path
 
 BLOCK_SIZE = 4014
-HEADER_SIZE = 42
+HEADER_SIZE = 14
 DATA_START = 100032  # fixed data section offset observed in these files
 
 

@@ -187,6 +187,11 @@ code.append('        }')
 code.append('    }')
 code.append('}')
 
-with open('SwitchMonitor.Tests/AlarmThresholdTests.cs', 'w', encoding='utf-8') as f:
+# 输出到 04_tests/generated/ 目录（C# 源码目录 SwitchMonitor.Tests/ 尚未创建）
+import os as _os
+out_dir = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), '..', 'generated')
+_os.makedirs(out_dir, exist_ok=True)
+out_path = _os.path.join(out_dir, 'AlarmThresholdTests.cs')
+with open(out_path, 'w', encoding='utf-8') as f:
     f.write('\n'.join(code))
-print('Test file written successfully')
+print(f'Test file written to: {out_path}')

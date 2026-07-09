@@ -1,0 +1,24 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "C:\\Program Files\\nodejs\\node.exe \"D:\\Vibe coding\\03 yuancheng\\dist\\permissionBridge.js\""
+          }
+        ]
+      }
+    ]
+  },
+  "permissions": {
+    "allow": [
+      "Read(**/*)",
+      "Glob(**/*)",
+      "Grep(* *)",
+      "WebSearch",
+      "WebFetch"
+    ]
+  }
+}

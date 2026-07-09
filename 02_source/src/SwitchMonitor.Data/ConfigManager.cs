@@ -94,7 +94,7 @@ namespace SwitchMonitor.Data
                     new SwitchGroup { Id = "4-1", Label = "4-1", DataFileIndex = 24 },
                     new SwitchGroup { Id = "4-X", Label = "4-X", DataFileIndex = 28 }
                 },
-                DataSourceDir = @".\shuju\sanshuibei",
+                DataSourceDir = @".\03_raw_data\sanshuibei",
                 ParsedDataDir = @".\parsed_data",
                 ScanInterval = 5,
                 AlarmThresholds = new AlarmThresholdsConfig
@@ -109,13 +109,16 @@ namespace SwitchMonitor.Data
                     CurrentC = "#CC44CC",
                     Power = "#55FF55",
                     ThresholdLine = "#FF4444",
-                    Background = "#0a0a1e",
-                    GridLine = "#3a3a5a",
+                    Background = "#3c3c3c",
+                    GridLine = "#6a6a6a",
                     TextColor = "#CCCCCC",
                     RefCurrentA = "#00FFFF",
                     RefCurrentB = "#FF5555",
                     RefCurrentC = "#FFFF00",
-                    RefPower = "#FF5555"
+                    RefPower = "#FF5555",
+                    LevelWarning = "#FFD54F",
+                    LevelAlarm = "#FF9800",
+                    LevelFault = "#FF4444"
                 },
                 Ui = new UiConfig
                 {
@@ -123,6 +126,11 @@ namespace SwitchMonitor.Data
                     DateFormat = "yyyy/MM/dd",
                     XAxisDefaultMax = 14,
                     XAxisExtendedMax = 30
+                },
+                Diagnosis = new DiagnosisConfig
+                {
+                    Enabled = true,
+                    RulesDir = "Rules"
                 }
             };
         }

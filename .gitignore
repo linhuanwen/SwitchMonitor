@@ -49,6 +49,9 @@ __pycache__/
 .venv/
 venv/
 
+# --- 构建打包 ---
+build/
+
 # --- 临时文件 ---
 *.tmp
 *.temp

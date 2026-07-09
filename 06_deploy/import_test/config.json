@@ -9,7 +9,7 @@
     {"id": "4-1", "label": "4-1", "dataFileIndex": 24},
     {"id": "4-X", "label": "4-X", "dataFileIndex": 28}
   ],
-  "dataSourceDir": "d:/tool/UltraEdit/shuju/sanshuibei",
+  "dataSourceDir": "./03_raw_data/sanshuibei",
   "parsedDataDir": "./parsed_data",
   "scanInterval": 5,
   "alarmThresholds": {
@@ -19,7 +19,7 @@
   "chartColors": {
     "currentA": "#FF4444", "currentB": "#44FF44", "currentC": "#4488FF",
     "power": "#FFAA00", "thresholdLine": "#FF0000",
-    "background": "#1a1a2e", "gridLine": "#333355", "textColor": "#888888"
+    "background": "#3c3c3c", "gridLine": "#6a6a6a", "textColor": "#CCCCCC"
   },
   "ui": {
     "sidebarWidthPercent": 18, "dateFormat": "yyyy/MM/dd",

@@ -2,8 +2,8 @@
 # -*- coding: utf-8 -*-
 """
 Parse local receive directories:
-  shuju/本地接收目录扳动   -> digital switch status events
-  shuju/本地接收目录表示   -> analog indication measurements
+  03_raw_data/本地接收目录扳动   -> digital switch status events
+  03_raw_data/本地接收目录表示   -> analog indication measurements
 
 Usage:
     python parse_local_receive.py
@@ -16,7 +16,11 @@ from pathlib import Path
 from datetime import datetime
 from collections import defaultdict
 
-BASE = Path('shuju')
+# 数据路径：脚本位于 02_source/tools/，数据应在 03_raw_data/ 下
+# ⚠️ 注意：本地接收目录扳动/ 和 本地接收目录表示/ 两个数据目录在项目迁移时未包含，
+# 如果这些目录不存在，脚本将跳过处理。请将原始数据放入 03_raw_data/ 对应子目录。
+_PROJECT = Path(__file__).parent.parent.parent
+BASE = _PROJECT / '03_raw_data'
 DIGIT_DIR = BASE / '本地接收目录扳动'
 ANALOG_DIR = BASE / '本地接收目录表示'
 OUT_DIGIT = BASE / '本地接收目录扳动_parsed'

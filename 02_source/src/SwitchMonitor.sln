@@ -5,6 +5,14 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SwitchMonitor.UI", "SwitchM
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SwitchMonitor.Data", "SwitchMonitor.Data\SwitchMonitor.Data.csproj", "{B2C3D4E5-F6A7-8901-BCDE-F12345678901}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SwitchMonitor.Diagnosis", "SwitchMonitor.Diagnosis\SwitchMonitor.Diagnosis.csproj", "{C3D4E5F6-A7B8-9012-CDEF-123456789012}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SwitchMonitor.DiagTool", "SwitchMonitor.DiagTool\SwitchMonitor.DiagTool.csproj", "{D4E5F6A7-B8C9-0123-DEF1-234567890123}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SwitchMonitor.Tests", "SwitchMonitor.Tests\SwitchMonitor.Tests.csproj", "{E5F6A7B8-C9D0-1234-EF56-789012345678}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SwitchMonitor.Tools", "SwitchMonitor.Tools\SwitchMonitor.Tools.csproj", "{F6A7B8C9-D0E1-2345-F678-901234567890}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x86 = Debug|x86
@@ -19,5 +27,21 @@ Global
 		{B2C3D4E5-F6A7-8901-BCDE-F12345678901}.Debug|x86.Build.0 = Debug|x86
 		{B2C3D4E5-F6A7-8901-BCDE-F12345678901}.Release|x86.ActiveCfg = Release|x86
 		{B2C3D4E5-F6A7-8901-BCDE-F12345678901}.Release|x86.Build.0 = Release|x86
+		{C3D4E5F6-A7B8-9012-CDEF-123456789012}.Debug|x86.ActiveCfg = Debug|x86
+		{C3D4E5F6-A7B8-9012-CDEF-123456789012}.Debug|x86.Build.0 = Debug|x86
+		{C3D4E5F6-A7B8-9012-CDEF-123456789012}.Release|x86.ActiveCfg = Release|x86
+		{C3D4E5F6-A7B8-9012-CDEF-123456789012}.Release|x86.Build.0 = Release|x86
+		{D4E5F6A7-B8C9-0123-DEF1-234567890123}.Debug|x86.ActiveCfg = Debug|x86
+		{D4E5F6A7-B8C9-0123-DEF1-234567890123}.Debug|x86.Build.0 = Debug|x86
+		{D4E5F6A7-B8C9-0123-DEF1-234567890123}.Release|x86.ActiveCfg = Release|x86
+		{D4E5F6A7-B8C9-0123-DEF1-234567890123}.Release|x86.Build.0 = Release|x86
+		{E5F6A7B8-C9D0-1234-EF56-789012345678}.Debug|x86.ActiveCfg = Debug|x86
+		{E5F6A7B8-C9D0-1234-EF56-789012345678}.Debug|x86.Build.0 = Debug|x86
+		{E5F6A7B8-C9D0-1234-EF56-789012345678}.Release|x86.ActiveCfg = Release|x86
+		{E5F6A7B8-C9D0-1234-EF56-789012345678}.Release|x86.Build.0 = Release|x86
+		{F6A7B8C9-D0E1-2345-F678-901234567890}.Debug|x86.ActiveCfg = Debug|x86
+		{F6A7B8C9-D0E1-2345-F678-901234567890}.Debug|x86.Build.0 = Debug|x86
+		{F6A7B8C9-D0E1-2345-F678-901234567890}.Release|x86.ActiveCfg = Release|x86
+		{F6A7B8C9-D0E1-2345-F678-901234567890}.Release|x86.Build.0 = Release|x86
 	EndGlobalSection
 EndGlobal

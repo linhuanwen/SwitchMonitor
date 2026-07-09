@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Drawing;
@@ -8,6 +9,7 @@ using System.Text;
 using System.Web.Script.Serialization;
 using System.Windows.Forms;
 using SwitchMonitor.Data;
+using SwitchMonitor.Diagnosis;
 
 namespace SwitchMonitor.UI
 {
@@ -34,6 +36,20 @@ namespace SwitchMonitor.UI
             _indexManager = indexManager;
             _serializer = new JavaScriptSerializer();
             _pipeline = new DataPipeline(config, indexManager);
+
+            // ── D4: 装配诊断管道 ──
+            try
+            {
+                _pipeline.DiagnoseHook = DiagnosisRunner.CreateHook(config.Diagnosis, config.ParsedDataDir);
+                if (_pipeline.DiagnoseHook != null)
+                    Logger.Info("诊断引擎已装配");
+                else
+                    Logger.Info("诊断已禁用 (diagnosis.enabled=false)");
+            }
+            catch (Exception ex)
+            {
+                Logger.Error("诊断引擎初始化失败，诊断已禁用", ex);
+            }
 
             // 初始化 WebBrowser
             sidebarBrowser.ObjectForScripting = new JSBridge(this);
@@ -94,6 +110,14 @@ namespace SwitchMonitor.UI
 
             // === 工具菜单 ===
             var toolMenu = new ToolStripMenuItem("工具(&T)");
+
+            var diagParamItem = new ToolStripMenuItem("诊断参数设置(&P)...", null, OnDiagParamClicked);
+            toolMenu.DropDownItems.Add(diagParamItem);
+
+            var rerunDiagItem = new ToolStripMenuItem("重新诊断当前数据(&D)", null, OnRerunDiagClicked);
+            toolMenu.DropDownItems.Add(rerunDiagItem);
+
+            toolMenu.DropDownItems.Add(new ToolStripSeparator());
 
             var viewLogItem = new ToolStripMenuItem("查看日志(&L)...", null, OnViewLogClicked);
             viewLogItem.ShortcutKeys = Keys.Control | Keys.L;
@@ -212,6 +236,143 @@ namespace SwitchMonitor.UI
                 MessageBox.Show("打开日志目录失败: " + ex.Message,
                     "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
+        }
+
+        /// <summary>
+        /// 工具 → 诊断参数设置 → 弹出 DiagParamForm 对话框
+        /// </summary>
+        private void OnDiagParamClicked(object sender, EventArgs e)
+        {
+            try
+            {
+                using (var form = new DiagParamForm(_config, _indexManager))
+                {
+                    DialogResult result = form.ShowDialog(this);
+                    if (result == DialogResult.OK)
+                    {
+                        // 保存 + 重跑诊断
+                        statusLabel.Text = "诊断参数已保存，正在重跑诊断...";
+                        RunDiagnosisRerun();
+                    }
+                    else if (result == DialogResult.Yes)
+                    {
+                        // 仅保存，刷新图表阈值线
+                        statusLabel.Text = "诊断参数已保存";
+                        // 实时刷新图表阈值线
+                        string thresholdJson = _serializer.Serialize(new
+                        {
+                            current = _config.AlarmThresholds.Current.Enabled ? _config.AlarmThresholds.Current.Value : (double?)null,
+                            power = _config.AlarmThresholds.Power.Enabled ? _config.AlarmThresholds.Power.Value : (double?)null
+                        });
+                        InvokeChartScript("updateThreshold", thresholdJson);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("打开诊断参数设置失败: " + ex.Message,
+                    "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        /// <summary>
+        /// 工具 → 重新诊断当前数据
+        /// </summary>
+        private void OnRerunDiagClicked(object sender, EventArgs e)
+        {
+            var result = MessageBox.Show(
+                "将对全部已导入的道岔动作数据重新运行诊断引擎。\n\n" +
+                "此操作不重新导入 CSV，仅重跑诊断规则。\n" +
+                "完成后将更新诊断条、时间列表着色和日期角标。\n\n确定继续？",
+                "重新诊断", MessageBoxButtons.OKCancel, MessageBoxIcon.Question);
+
+            if (result == DialogResult.OK)
+            {
+                statusLabel.Text = "正在重跑诊断...";
+                RunDiagnosisRerun();
+            }
+        }
+
+        /// <summary>
+        /// 后台重跑诊断（BackgroundWorker）
+        /// </summary>
+        private void RunDiagnosisRerun()
+        {
+            if (_importWorker.IsBusy)
+            {
+                MessageBox.Show("导入任务正在进行中，请等待完成后再重跑诊断。", "提示",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            var worker = new BackgroundWorker();
+            worker.WorkerReportsProgress = true;
+            worker.WorkerSupportsCancellation = true;
+
+            worker.DoWork += (s, args) =>
+            {
+                try
+                {
+                    string rulesDir = _config.Diagnosis.RulesDir;
+                    if (!Path.IsPathRooted(rulesDir))
+                        rulesDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, rulesDir);
+
+                    var engine = new DiagnosisEngine();
+                    engine.Initialize(rulesDir);
+                    engine.SetParsedDataDir(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, _config.ParsedDataDir));
+
+                    // 重建索引以获取最新数据
+                    _indexManager.Initialize();
+
+                    DiagnosisRunner.RerunAll(_indexManager, engine);
+                    args.Result = "OK";
+                }
+                catch (Exception ex)
+                {
+                    args.Result = "失败: " + ex.Message;
+                }
+            };
+
+            worker.RunWorkerCompleted += (s, args) =>
+            {
+                string result = args.Result as string;
+                if (result == "OK")
+                {
+                    statusLabel.Text = "诊断重跑完成";
+                    MessageBox.Show("诊断重跑完成！\n\n请重新选择日期查看更新后的诊断结果。",
+                        "完成", MessageBoxButtons.OK, MessageBoxIcon.Information);
+
+                    // 刷新当前视图
+                    if (!string.IsNullOrEmpty(_selectedSwitchId))
+                    {
+                        // 重新加载 alarms_index 角标
+                        try
+                        {
+                            var alarmsIndex = _indexManager.LoadAlarmsIndex();
+                            Dictionary<string, Dictionary<string, int>> switchAlarms = null;
+                            if (alarmsIndex.ContainsKey(_selectedSwitchId))
+                                switchAlarms = alarmsIndex[_selectedSwitchId];
+                            string alarmsJson = _serializer.Serialize(switchAlarms);
+                            InvokeSidebarScript("setAlarmBadges", alarmsJson);
+                        }
+                        catch { }
+
+                        // 重载当前日期的时间列表 + 曲线
+                        if (!string.IsNullOrEmpty(_selectedDate))
+                        {
+                            OnDateSelected(_selectedDate);
+                        }
+                    }
+                }
+                else
+                {
+                    statusLabel.Text = "诊断重跑失败";
+                    MessageBox.Show("诊断重跑失败:\n" + result,
+                        "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+            };
+
+            worker.RunWorkerAsync();
         }
 
         private void ImportWorker_DoWork(object sender, DoWorkEventArgs e)
@@ -391,6 +552,22 @@ namespace SwitchMonitor.UI
             string datesJson = _serializer.Serialize(dates);
             InvokeSidebarScript("setDates", datesJson);
 
+            // D5: 加载 alarms_index，传递日期角标数据
+            try
+            {
+                var alarmsIndex = _indexManager.LoadAlarmsIndex();
+                Dictionary<string, Dictionary<string, int>> switchAlarms = null;
+                if (alarmsIndex.ContainsKey(switchId))
+                    switchAlarms = alarmsIndex[switchId];
+                string alarmsJson = _serializer.Serialize(switchAlarms);
+                InvokeSidebarScript("setAlarmBadges", alarmsJson);
+            }
+            catch
+            {
+                // alarms_index 缺失时不报错，仅不显示角标
+                InvokeSidebarScript("setAlarmBadges", "null");
+            }
+
             // 默认选中最近日期
             if (dates.Count > 0)
             {
@@ -425,8 +602,25 @@ namespace SwitchMonitor.UI
 
             Logger.Info(string.Format("日期 {0} 共 {1} 条动作记录", date, timestamps.Count));
 
-            // 通知侧边栏更新时间下拉框
-            string timesJson = _serializer.Serialize(timestamps);
+            // D5: 加载诊断结果，构造 [{ts, level}, ...] 扩展格式传给 setTimes
+            var diagnoses = _indexManager.LoadDayDiagnosis(_selectedSwitchId, date);
+            var diagByTs = new Dictionary<long, string>();
+            foreach (var d in diagnoses)
+            {
+                diagByTs[d.Timestamp] = d.Level;
+            }
+
+            var timesWithLevel = new List<object>();
+            foreach (var ts in timestamps)
+            {
+                string level;
+                if (diagByTs.TryGetValue(ts, out level))
+                    timesWithLevel.Add(new { ts = ts, level = level });
+                else
+                    timesWithLevel.Add(new { ts = ts, level = "正常" });
+            }
+
+            string timesJson = _serializer.Serialize(timesWithLevel);
             InvokeSidebarScript("setTimes", timesJson);
 
             // 自动选中最近时间
@@ -546,6 +740,115 @@ namespace SwitchMonitor.UI
             if (maxDuration > _config.Ui.XAxisDefaultMax)
                 xMax = _config.Ui.XAxisExtendedMax;
 
+            // D5: 加载当前事件的诊断结论
+            object diagnosis = null;
+            try
+            {
+                var dayDiagnoses = _indexManager.LoadDayDiagnosis(_selectedSwitchId, _selectedDate);
+                EventDiagnosis currentDiag = null;
+                foreach (var d in dayDiagnoses)
+                {
+                    if (d.Timestamp == _selectedTimestamp)
+                    {
+                        currentDiag = d;
+                        break;
+                    }
+                }
+
+                if (currentDiag != null && currentDiag.Results != null && currentDiag.Results.Count > 0)
+                {
+                    var items = new List<string>();
+                    foreach (var r in currentDiag.Results)
+                    {
+                        items.Add(r.Description);
+                    }
+                    diagnosis = new
+                    {
+                        level = currentDiag.Level,
+                        items = items.ToArray()
+                    };
+                }
+                else if (currentDiag != null)
+                {
+                    // 诊断数据存在但无命中规则 → 正常
+                    diagnosis = new
+                    {
+                        level = currentDiag.Level,
+                        items = new string[0]
+                    };
+                }
+                // 否则 diagnosis 保持 null（.diag.json 缺失 → 前端显示"未诊断"）
+            }
+            catch
+            {
+                // 诊断数据缺失时不报错
+                diagnosis = null;
+            }
+
+            // D6: 加载该道岔的参考曲线（用于图表叠加）
+            object refCurve = null;
+            object baseline = null;
+            try
+            {
+                string refDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, _config.Diagnosis.RulesDir, "reference_curves");
+                string refPath = Path.Combine(refDir, _selectedSwitchId + ".json");
+                if (File.Exists(refPath))
+                {
+                    var loadedRef = ReferenceCurveStore.Load(refPath);
+                    if (loadedRef != null && loadedRef.Values != null && loadedRef.Values.Count > 0)
+                    {
+                        // 转换为 [t, v] 对格式供前端渲染
+                        var refPairs = new List<object>();
+                        double interval = loadedRef.SampleInterval > 0 ? loadedRef.SampleInterval : 0.04;
+                        for (int i = 0; i < loadedRef.Values.Count; i++)
+                        {
+                            double t = Math.Round(i * interval, 3);
+                            refPairs.Add(new double[] { t, loadedRef.Values[i] });
+                        }
+                        refCurve = new
+                        {
+                            switchId = loadedRef.SwitchId,
+                            alignIndex = loadedRef.AlignIndex,
+                            values = refPairs
+                        };
+                    }
+                }
+            }
+            catch
+            {
+                // 参考曲线加载失败不中断主流程
+                refCurve = null;
+            }
+
+            // D7: 加载该道岔的诊断基线（用于图表叠加显示）
+            try
+            {
+                string baselinePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
+                    _config.Diagnosis.RulesDir, "baselines.json");
+                if (File.Exists(baselinePath))
+                {
+                    var store = BaselineStore.Load(baselinePath);
+                    SwitchBaseline bl;
+                    if (store.Switches != null && store.Switches.TryGetValue(_selectedSwitchId, out bl))
+                    {
+                        baseline = new
+                        {
+                            refDurationSec = bl.RefDurationSec,
+                            refSpikePeak = bl.RefSpikePeak,
+                            refUnlockMean = bl.RefUnlockMean,
+                            refConvMean = bl.RefConvMean,
+                            refTailMean = bl.RefTailMean,
+                            sampleCount = bl.SampleCount
+                        };
+                    }
+                }
+            }
+            catch
+            {
+                // 基线加载失败不中断主流程
+                baseline = null;
+            }
+
             // 构建传给 JS 的数据对象
             var chartData = new
             {
@@ -556,7 +859,10 @@ namespace SwitchMonitor.UI
                 thresholdCurrent = _config.AlarmThresholds.Current.Enabled ? _config.AlarmThresholds.Current.Value : (double?)null,
                 thresholdPower = _config.AlarmThresholds.Power.Enabled ? _config.AlarmThresholds.Power.Value : (double?)null,
                 xMax = xMax,
-                colors = _config.ChartColors
+                colors = _config.ChartColors,
+                diagnosis = diagnosis,
+                refCurve = refCurve,
+                baseline = baseline
             };
 
             string chartDataJson = _serializer.Serialize(chartData);
@@ -684,10 +990,33 @@ namespace SwitchMonitor.UI
             string text = "就绪";
             if (!string.IsNullOrEmpty(_selectedSwitchId))
             {
+                string timeStr = _selectedTimestamp > 0 ? UnixToTimeString(_selectedTimestamp) : "-";
                 text = string.Format("{0} | {1} | {2}",
                     GetSwitchLabel(_selectedSwitchId),
                     _selectedDate ?? "-",
-                    _selectedTimestamp > 0 ? UnixToTimeString(_selectedTimestamp) : "-");
+                    timeStr);
+
+                // D5: 追加当前事件诊断级别
+                if (_selectedTimestamp > 0 && !string.IsNullOrEmpty(_selectedDate))
+                {
+                    try
+                    {
+                        var dayDiagnoses = _indexManager.LoadDayDiagnosis(_selectedSwitchId, _selectedDate);
+                        foreach (var d in dayDiagnoses)
+                        {
+                            if (d.Timestamp == _selectedTimestamp)
+                            {
+                                if (d.Level != "正常")
+                                    text += " | " + d.Level;
+                                break;
+                            }
+                        }
+                    }
+                    catch
+                    {
+                        // 诊断数据缺失时不报错
+                    }
+                }
             }
             statusLabel.Text = text;
         }

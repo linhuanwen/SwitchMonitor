@@ -93,6 +93,32 @@ namespace SwitchMonitor.Data
         }
 
         /// <summary>
+        /// 记录诊断日志到 diag.log（单文件追加，不做轮转）。
+        /// 与诊断计算同步完成，不产生额外 IO 开销。
+        /// </summary>
+        public static void LogDiagnosis(string text)
+        {
+            try
+            {
+                string dir = LogDir;
+                if (!Directory.Exists(dir))
+                    Directory.CreateDirectory(dir);
+
+                string line = string.Format("[{0:yyyy-MM-dd HH:mm:ss}] {1}", DateTime.Now, text);
+
+                string logPath = Path.Combine(dir, "diag.log");
+                lock (_lock)
+                {
+                    File.AppendAllText(logPath, line + Environment.NewLine, Encoding.UTF8);
+                }
+            }
+            catch
+            {
+                // 日志记录失败不应影响主程序运行
+            }
+        }
+
+        /// <summary>
         /// 写入日志
         /// </summary>
         private static void WriteLog(string level, string message)

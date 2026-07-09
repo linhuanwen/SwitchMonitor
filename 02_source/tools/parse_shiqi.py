@@ -22,8 +22,10 @@ from pathlib import Path
 from datetime import datetime
 from collections import defaultdict
 
-ROOT = Path('shuju/shiqi')
-OUT_DIR = Path('shuju/shiqi_parsed')
+# 数据路径：脚本位于 02_source/tools/，数据在 03_raw_data/shiqi/
+_PROJECT = Path(__file__).parent.parent.parent
+ROOT = _PROJECT / '03_raw_data' / 'shiqi'
+OUT_DIR = _PROJECT / '03_raw_data' / 'shiqi_parsed'
 
 
 def parse_param_file(path):

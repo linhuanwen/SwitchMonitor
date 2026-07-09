@@ -1,5 +1,7 @@
 # Slice 1: 项目脚手架 + 数据模型 + 配置加载
 
+> **状态（2026-07-08 代码审核）**: ✅ 已实现。偏差：采样属性为 `List<double[]>`（[t,v] 对）而非 `List<double>`；`SwitchMonitor.Tools/` 仅有游离源码 `ImportTool.cs`，无 .csproj、未纳入 .sln。
+
 ## Type
 
 AFK

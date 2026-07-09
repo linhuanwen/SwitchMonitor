@@ -48,7 +48,7 @@
 ## 三、目录结构
 
 ```
-d:\SwitchMonitor\
+d:\Vibe coding\04 DCjiance\SwitchMonitor\
 ├── app.py                  # Flask 主入口，启动服务+打开浏览器
 ├── config.json             # 系统配置文件
 ├── requirements.txt        # Python 依赖清单

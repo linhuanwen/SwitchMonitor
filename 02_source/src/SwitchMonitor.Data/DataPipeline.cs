@@ -21,6 +21,13 @@ namespace SwitchMonitor.Data
         /// <summary>总共导入的事件数</summary>
         public int TotalEventsImported { get; private set; }
 
+        /// <summary>
+        /// D4 诊断钩子：switchId, SwitchEvent → EventDiagnosis。
+        /// 由 UI/DiagTool 在装配时挂载 DiagnosisRunner.Run。
+        /// null（默认）时不执行诊断。
+        /// </summary>
+        public Func<string, SwitchEvent, EventDiagnosis> DiagnoseHook;
+
         public DataPipeline(AppConfig config, IndexManager indexManager)
         {
             _config = config;
@@ -29,12 +36,19 @@ namespace SwitchMonitor.Data
 
             // 解析数据源目录（相对于程序所在目录）
             string baseDir = AppDomain.CurrentDomain.BaseDirectory;
-            _dataSourceDir = Path.Combine(baseDir, config.DataSourceDir);
-            if (!Directory.Exists(_dataSourceDir))
+            if (!string.IsNullOrEmpty(config.DataSourceDir))
             {
-                // 回退：尝试把 DataSourceDir 当作绝对路径
-                if (Directory.Exists(config.DataSourceDir))
-                    _dataSourceDir = config.DataSourceDir;
+                _dataSourceDir = Path.Combine(baseDir, config.DataSourceDir);
+                if (!Directory.Exists(_dataSourceDir))
+                {
+                    // 回退：尝试把 DataSourceDir 当作绝对路径
+                    if (Directory.Exists(config.DataSourceDir))
+                        _dataSourceDir = config.DataSourceDir;
+                }
+            }
+            else
+            {
+                _dataSourceDir = baseDir;
             }
         }
 
@@ -195,6 +209,38 @@ namespace SwitchMonitor.Data
 
                 // 保存到 parsed_data 并更新索引
                 _indexManager.SaveDayData(group.Id, kvp.Key, events);
+
+                // D4: 保存后执行诊断（若 DiagnoseHook 已挂载）
+                if (DiagnoseHook != null)
+                {
+                    try
+                    {
+                        var diagnoses = new List<EventDiagnosis>(events.Count);
+                        foreach (var evt in events)
+                        {
+                            try
+                            {
+                                var diag = DiagnoseHook(group.Id, evt);
+                                if (diag != null)
+                                    diagnoses.Add(diag);
+                            }
+                            catch (Exception ex)
+                            {
+                                // 单个事件诊断失败不中断导入
+                                Logger.Error(string.Format("诊断失败 switchId={0} eventTs={1}", group.Id, evt.Timestamp), ex);
+                            }
+                        }
+
+                        if (diagnoses.Count > 0)
+                            _indexManager.SaveDayDiagnosis(group.Id, kvp.Key, diagnoses);
+                    }
+                    catch (Exception ex)
+                    {
+                        // 诊断环节整体异常不中断导入
+                        Logger.Error(string.Format("诊断批次失败 switchId={0} date={1}", group.Id, kvp.Key), ex);
+                    }
+                }
+
                 totalEvents += events.Count;
             }
 

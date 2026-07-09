@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<meta http-equiv="X-UA-Compatible" content="IE=8">
+<title>诊断UI IE8兼容性测试</title>
+<style>
+* { margin: 0; padding: 0; }
+html, body {
+    width: 100%;
+    height: 100%;
+    background: #3c3c3c;
+    color: #dddddd;
+    font: 12px SimSun, sans-serif;
+    overflow: hidden;
+}
+
+/* ====== 诊断结论条 (D5 #diagBar) ====== */
+.diag-bar {
+    position: relative;
+    height: 28px;
+    line-height: 28px;
+    padding: 0 12px;
+    font-size: 13px;
+    font-weight: bold;
+    border-bottom: 1px solid #555;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    z-index: 20;
+}
+.diag-bar.normal   { background: #1a3a1a; color: #66DD66; }
+.diag-bar.warning  { background: #3a3a1a; color: #FFD54F; }
+.diag-bar.alarm    { background: #3a2a1a; color: #FF9800; }
+.diag-bar.fault    { background: #3a1a1a; color: #FF4444; }
+.diag-bar.unknown  { background: #2a2a2a; color: #888888; }
+
+.diag-dot {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 5px;
+    margin-right: 6px;
+    vertical-align: middle;
+}
+.diag-dot.normal  { background: #66DD66; }
+.diag-dot.warning { background: #FFD54F; }
+.diag-dot.alarm   { background: #FF9800; }
+.diag-dot.fault   { background: #FF4444; }
+.diag-dot.unknown { background: #666666; }
+
+/* ====== 工具栏 ====== */
+.toolbar {
+    background: #2d2d2d;
+    padding: 4px 10px;
+    border-bottom: 1px solid #555555;
+    height: 28px;
+    line-height: 28px;
+    position: relative;
+    z-index: 10;
+}
+.toolbar label {
+    margin-right: 14px;
+    cursor: pointer;
+    color: #cccccc;
+    font-size: 12px;
+}
+.toolbar input[type="checkbox"] { margin-right: 3px; vertical-align: middle; }
+.toolbar button {
+    float: right;
+    margin-left: 8px;
+    padding: 2px 10px;
+    background: #444466;
+    color: #dddddd;
+    border: 1px solid #666688;
+    font: 12px SimSun;
+    cursor: pointer;
+}
+.toolbar button:hover { background: #555588; }
+
+/* ====== 图表网格 ====== */
+.chart-grid {
+    position: absolute;
+    top: 68px;  /* toolbar(28) + diagBar(28) + border ≈ 64, pad to 68 */
+    left: 0;
+    right: 0;
+    bottom: 0;
+    overflow: hidden;
+}
+.chart-row { width: 100%; height: 50%; overflow: hidden; }
+.chart-cell { width: 50%; height: 100%; float: left; overflow: hidden; }
+.chart-inner { width: 100%; height: 100%; position: relative; }
+
+/* ====== 空状态 ====== */
+.empty-state {
+    position: absolute; top: 50%; left: 50%;
+    margin-left: -150px; margin-top: -30px;
+    width: 300px; text-align: center; z-index: 5;
+}
+.empty-state .main-msg { color: #FFAA00; font-size: 16px; font-weight: bold; }
+
+/* ====== 异常事件模拟器面板 ====== */
+.test-panel {
+    position: absolute;
+    bottom: 8px;
+    right: 8px;
+    z-index: 100;
+    background: #1a1a2e;
+    border: 1px solid #555;
+    padding: 8px;
+    width: 280px;
+    font-size: 11px;
+}
+.test-panel h4 { color: #FFAA00; margin-bottom: 6px; font-size: 12px; }
+.test-panel button {
+    margin: 2px 2px;
+    padding: 3px 8px;
+    background: #333355;
+    color: #ccc;
+    border: 1px solid #555;
+    font: 11px SimSun;
+    cursor: pointer;
+}
+.test-panel button:hover { background: #444477; color: #fff; }
+.test-panel .log {
+    margin-top: 6px;
+    max-height: 80px;
+    overflow-y: auto;
+    color: #888;
+    font-size: 10px;
+    border-top: 1px solid #333;
+    padding-top: 4px;
+}
+
+/* ====== 侧边栏模拟 ====== */
+.time-list-preview {
+    position: absolute;
+    left: 8px;
+    bottom: 8px;
+    z-index: 100;
+    background: #1a1a2e;
+    border: 1px solid #555;
+    padding: 6px;
+    width: 200px;
+    font-size: 11px;
+}
+.time-list-preview h4 { color: #FFAA00; margin-bottom: 4px; font-size: 12px; }
+.time-list-preview ul { list-style: none; }
+.time-list-preview li {
+    padding: 3px 8px;
+    cursor: pointer;
+    font-family: Consolas, monospace;
+    font-size: 12px;
+    color: #aaa;
+    border-left: 3px solid transparent;
+}
+.time-list-preview li:hover { background: #252545; color: #fff; }
+.time-list-preview li.active { color: #FFAA00; font-weight: bold; background: #2a2a5e; }
+
+/* 诊断级别着色 */
+.time-list-preview li.lvl-normal  { color: #aaa; }
+.time-list-preview li.lvl-warning { color: #FFD54F; border-left-color: #FFD54F; }
+.time-list-preview li.lvl-alarm   { color: #FF9800; border-left-color: #FF9800; }
+.time-list-preview li.lvl-fault   { color: #FF4444; border-left-color: #FF4444; }
+.time-list-preview li.lvl-normal.active  { color: #FFAA00; }
+.time-list-preview li.lvl-warning.active { color: #FFAA00; background: #3a3a1a; }
+.time-list-preview li.lvl-alarm.active   { color: #FFAA00; background: #3a2a1a; }
+.time-list-preview li.lvl-fault.active   { color: #FFAA00; background: #3a1a1a; }
+</style>
+</head>
+<body>
+
+<!-- 诊断标记 -->
+<div style="background:#FF0000;color:#FFFFFF;font-size:14px;padding:2px 8px;position:absolute;top:0;right:0;z-index:9999;" id="_renderTest">RENDER</div>
+
+<!-- 工具栏 -->
+<div class="toolbar" id="toolbar">
+    <label><input type="checkbox" id="chkCurrentA" checked>电流(A)</label>
+    <label><input type="checkbox" id="chkCurrentB" checked>电流(B)</label>
+    <label><input type="checkbox" id="chkCurrentC" checked>电流(C)</label>
+    <label><input type="checkbox" id="chkPower" checked>功率</label>
+    <label><input type="checkbox" id="chkThreshold" checked>报警上限</label>
+    <button id="btnTestRender">渲染压测</button>
+</div>
+
+<!-- ★ D5 诊断结论条 -->
+<div class="diag-bar unknown" id="diagBar">
+    <span class="diag-dot unknown"></span>未诊断 — 请选择事件
+</div>
+
+<!-- 图表网格 -->
+<div class="chart-grid" id="chartGrid">
+    <div class="chart-row">
+        <div class="chart-cell"><div class="chart-inner" id="chart1"></div></div>
+        <div class="chart-cell"><div class="chart-inner" id="chart2"></div></div>
+    </div>
+    <div class="chart-row">
+        <div class="chart-cell"><div class="chart-inner" id="chart3"></div></div>
+        <div class="chart-cell"><div class="chart-inner" id="chart4"></div></div>
+    </div>
+</div>
+
+<div class="empty-state" id="emptyState">
+    <div class="main-msg">请选择转辙机查看曲线</div>
+</div>
+
+<!-- 侧边栏时间列表模拟（D5 着色） -->
+<div class="time-list-preview" id="timePanel">
+    <h4>时间列表（D5着色）</h4>
+    <ul id="timeListUl"></ul>
+</div>
+
+<!-- 测试面板 -->
+<div class="test-panel" id="testPanel">
+    <h4>诊断场景切换</h4>
+    <button onclick="switchScenario('fault')">故障 R1</button>
+    <button onclick="switchScenario('alarm')">报警 R2</button>
+    <button onclick="switchScenario('warning')">预警 R3+R5</button>
+    <button onclick="switchScenario('warning2')">预警 R4+R7</button>
+    <button onclick="switchScenario('normal')">正常</button>
+    <button onclick="switchScenario('unknown')">未诊断</button>
+    <div class="log" id="testLog"></div>
+</div>
+
+<!-- Highcharts -->
+<script src="../Js/highcharts.js"></script>
+<script>
+// ===== JS错误捕获 =====
+var _errors = [];
+window.onerror = function(msg, url, line) {
+    _errors.push(msg + ' (line ' + line + ')');
+    var log = document.getElementById('testLog');
+    if (log) log.innerHTML += '<div style="color:#FF4444;">ERR: ' + msg + '</div>';
+    return true;
+};
+
+// ===== JSON polyfill (IE8) =====
+if (typeof JSON === 'undefined' || typeof JSON.parse === 'undefined') {
+    window.JSON = {
+        parse: function(t) { return (new Function('return ' + t))(); },
+        stringify: function(o) {
+            if (typeof o === 'string') return '"' + o.replace(/\\/g,'\\\\').replace(/"/g,'\\"').replace(/\n/g,'\\n') + '"';
+            if (typeof o === 'number' || typeof o === 'boolean') return '' + o;
+            if (o === null || o === undefined) return 'null';
+            if (o instanceof Array) {
+                var a = [];
+                for (var i = 0; i < o.length; i++) { a.push(JSON.stringify(o[i])); }
+                return '[' + a.join(',') + ']';
+            }
+            var s = '{'; var first = true;
+            for (var k in o) {
+                if (!o.hasOwnProperty || o.hasOwnProperty(k)) {
+                    if (!first) s += ','; first = false;
+                    s += '"' + k + '":' + JSON.stringify(o[k]);
+                }
+            }
+            s += '}'; return s;
+        }
+    };
+}
+
+// ===== 生成模拟曲线数据 =====
+function makeSineCurve(samples, amplitude, phase) {
+    var data = [];
+    for (var i = 0; i < samples; i++) {
+        data.push([i * 0.04, amplitude * (0.5 + 0.4 * Math.sin(i * 0.02 + phase))]);
+    }
+    return data;
+}
+
+function makeNormalPowerCurve(samples) {
+    var data = [];
+    for (var i = 0; i < samples; i++) {
+        var t = i * 0.04;
+        var val;
+        if (t < 0.3) {
+            val = t / 0.3 * 3.2;                     // 启动尖峰
+        } else if (t < 1.0) {
+            val = 3.2 * (1 - (t - 0.3) / 0.7 * 0.85); // 解锁段下降
+        } else if (t < 10.0) {
+            val = 0.48 + 0.03 * Math.sin(t * 3);      // 转换段平稳
+        } else if (t < 11.0) {
+            val = 0.51 + 0.05 * Math.sin(t * 5);      // 锁闭段
+        } else {
+            val = 0.30 * Math.exp(-(t - 11.0) / 0.5);  // 缓放尾段
+        }
+        if (val < 0) val = 0;
+        data.push([parseFloat(t.toFixed(2)), parseFloat(val.toFixed(3))]);
+    }
+    return data;
+}
+
+var charts = {};
+
+// ===== 诊断数据定义 =====
+var diagScenarios = {
+    fault: {
+        level: '故障',
+        items: ['动作时长31.36s，超过参考11.72s+3.0s，疑似卡阻/空转未完成'],
+        cssClass: 'fault'
+    },
+    alarm: {
+        level: '报警',
+        items: ['动作时长0.84s，不足参考11.72s的60%，动作夭折',
+                '步比异常0.43，超出范围[0.67, 1.50]，疑似传动机构卡滞'],
+        cssClass: 'alarm'
+    },
+    warning: {
+        level: '预警',
+        items: ['动作时长12.32s，与参考11.72s偏差0.60s，超出±0.5s',
+                '转换段功率0.545kW，超过参考0.301kW的1.3倍，疑似转换阻力增大'],
+        cssClass: 'warning'
+    },
+    warning2: {
+        level: '预警',
+        items: ['启动尖峰4.532kW，超过参考3.235kW的1.3倍',
+                '解锁段功率0.452kW，超过参考0.307kW的1.3倍，疑似解锁阻力异常'],
+        cssClass: 'warning'
+    },
+    normal: {
+        level: '正常',
+        items: [],
+        cssClass: 'normal'
+    },
+    unknown: {
+        level: null,
+        items: [],
+        cssClass: 'unknown'
+    }
+};
+
+var currentScenario = 'unknown';
+
+// ===== 更新诊断条 (D5 核心函数) =====
+function updateDiagBar(scenario) {
+    var bar = document.getElementById('diagBar');
+    var data = diagScenarios[scenario];
+    if (!data) return;
+
+    var t0 = new Date().getTime();
+
+    // 清除旧class
+    var clsList = ['normal', 'warning', 'alarm', 'fault', 'unknown'];
+    for (var c = 0; c < clsList.length; c++) {
+        bar.className = bar.className.replace(' ' + clsList[c], '').replace(clsList[c], '');
+    }
+    bar.className = 'diag-bar ' + data.cssClass;
+
+    // 构建HTML
+    var html = '';
+    if (data.level === null) {
+        html = '<span class="diag-dot unknown"></span>未诊断 — 该事件缺少诊断数据';
+    } else if (data.level === '正常') {
+        html = '<span class="diag-dot normal"></span>诊断正常';
+    } else {
+        var dotClass = (data.level === '预警') ? 'warning' : (data.level === '报警') ? 'alarm' : 'fault';
+        html += '<span class="diag-dot ' + dotClass + '"></span>';
+        html += '<span style="margin-right:8px;">' + data.level + '</span>';
+        // 拼接结论
+        var descs = [];
+        for (var i = 0; i < data.items.length; i++) {
+            descs.push(data.items[i]);
+        }
+        html += descs.join(' ； ');
+    }
+
+    bar.innerHTML = html;
+
+    // 设置 title tooltip (IE8 支持)
+    if (data.items.length > 0) {
+        bar.title = data.items.join('\n');
+    } else {
+        bar.title = data.level || '未诊断';
+    }
+
+    var t1 = new Date().getTime();
+    logPerf('updateDiagBar: ' + (t1 - t0) + 'ms');
+}
+
+// ===== 更新时间列表着色 (D5 侧边栏部分) =====
+function updateTimeList(scenario) {
+    var t0 = new Date().getTime();
+
+    var data = diagScenarios[scenario];
+    var levelClass = 'lvl-normal';
+    if (data.level === '故障') levelClass = 'lvl-fault';
+    else if (data.level === '报警') levelClass = 'lvl-alarm';
+    else if (data.level === '预警') levelClass = 'lvl-warning';
+    else if (data.level === null) levelClass = '';
+
+    // 模拟一个混合级别的时间列表
+    var times = [
+        { ts: '06:16:30', scenario: 'normal' },
+        { ts: '07:22:15', scenario: 'warning' },
+        { ts: '09:05:42', scenario: 'normal' },
+        { ts: '10:30:18', scenario: 'alarm' },
+        { ts: '12:11:33', scenario: 'normal' },
+        { ts: '14:28:07', scenario: 'normal' },
+        { ts: '16:43:51', scenario: 'warning2' },
+        { ts: '18:19:24', scenario: 'normal' }
+    ];
+
+    var ul = document.getElementById('timeListUl');
+    ul.innerHTML = '';
+
+    for (var i = 0; i < times.length; i++) {
+        var li = document.createElement('li');
+        var sData = diagScenarios[times[i].scenario];
+        var cls = 'lvl-normal';
+        var suffix = '';
+        if (sData.level === '故障') { cls = 'lvl-fault'; suffix = ' 故障'; }
+        else if (sData.level === '报警') { cls = 'lvl-alarm'; suffix = ' 报警'; }
+        else if (sData.level === '预警') { cls = 'lvl-warning'; suffix = ' 预警'; }
+
+        li.className = cls;
+        // 高亮当前场景对应的条目
+        if (times[i].scenario === scenario && scenario !== 'normal' && scenario !== 'unknown') {
+            li.className = cls + ' active';
+        }
+        li.innerText = times[i].ts + suffix;
+        li.title = times[i].ts + (suffix ? (' — ' + sData.level + ': ' + sData.items.join('; ')) : '');
+        ul.appendChild(li);
+    }
+
+    var t1 = new Date().getTime();
+    logPerf('updateTimeList: ' + (t1 - t0) + 'ms');
+}
+
+// ===== 切换场景 =====
+function switchScenario(scenario) {
+    currentScenario = scenario;
+    updateDiagBar(scenario);
+    updateTimeList(scenario);
+
+    // 如果图表已加载，也更新 chartDataCache 模拟数据
+    if (window._chartData) {
+        window._chartData.diagnosis = diagScenarios[scenario];
+    }
+
+    var log = document.getElementById('testLog');
+    log.innerHTML += '<div>切换: ' + scenario + ' [' + (diagScenarios[scenario].level || '未诊断') + ']</div>';
+}
+
+// ===== 性能日志 =====
+function logPerf(msg) {
+    var log = document.getElementById('testLog');
+    log.innerHTML += '<div style="color:#66DD66;">PERF: ' + msg + '</div>';
+    // 控制在最多20条
+    var lines = log.innerHTML.split('</div>');
+    if (lines.length > 20) {
+        log.innerHTML = lines.slice(lines.length - 20).join('</div>');
+    }
+}
+
+// ===== 渲染图表 =====
+function renderCharts() {
+    var t0 = new Date().getTime();
+    logPerf('renderCharts start');
+
+    var currentA = makeSineCurve(200, 2.5, 0);
+    var currentB = makeSineCurve(200, 2.3, 2.1);
+    var currentC = makeSineCurve(200, 2.7, 4.2);
+    var power = makeNormalPowerCurve(300);
+
+    var colorA = '#00E5E5';
+    var colorB = '#FF5555';
+    var colorC = '#CC44CC';
+    var colorP = '#FFD700';
+
+    var chart1 = new Highcharts.Chart({
+        chart: { renderTo: 'chart1', type: 'spline', backgroundColor: '#3c3c3c', animation: false, marginRight: 20 },
+        title: { text: '01/29 10:30:18.1-1.电流曲线 方向:定位→反位 时长:12.00秒', style: { color: '#FFFFFF', fontSize: '12px' } },
+        xAxis: { title: { text: '时间(秒)', style: { color: '#ccc' } }, min: 0, max: 14, tickInterval: 1,
+            lineColor: '#FFF', lineWidth: 4, tickColor: '#FFF', tickWidth: 1, tickLength: 5,
+            labels: { style: { color: '#ccc' } }, gridLineColor: '#6a6a6a', gridLineWidth: 2 },
+        yAxis: {
+            title: { text: '电流(A)', style: { color: '#ccc' } }, min: 0, max: 4, tickInterval: 0.5,
+            lineColor: '#FFF', lineWidth: 4, tickColor: '#FFF', tickWidth: 1, tickLength: 5,
+            labels: { style: { color: '#ccc' } }, gridLineColor: '#6a6a6a', gridLineWidth: 2,
+            plotLines: [{ color: '#FF4444', dashStyle: 'dash', value: 2.0, width: 1,
+                label: { text: '2.0 A', style: { color: '#FF4444', fontSize: '10px' }, align: 'right' } }]
+        },
+        tooltip: { enabled: false },
+        legend: { align: 'center', layout: 'horizontal', verticalAlign: 'bottom', borderWidth: 0,
+            itemStyle: { color: '#ccc', fontSize: '10px' } },
+        plotOptions: { spline: { lineWidth: 1.5, marker: { enabled: false }, shadow: false } },
+        credits: { enabled: false },
+        series: [
+            { name: '电流(A)', color: colorA, data: currentA },
+            { name: '电流(B)', color: colorB, data: currentB },
+            { name: '电流(C)', color: colorC, data: currentC }
+        ]
+    });
+    charts.chart1 = chart1;
+
+    // ===== 功率 Y 轴变换（与真实 charts.html 一致） =====
+    function transformPowerValue(realValue) {
+        if (realValue <= 0.6) return realValue * 5.0;
+        return 3.0 + (realValue - 0.6);
+    }
+    var transformedPower = [];
+    for (var i = 0; i < power.length; i++) {
+        transformedPower.push([power[i][0], transformPowerValue(power[i][1])]);
+    }
+
+    // 计算显示坐标刻度
+    var yMaxDisplay = Math.max(5.0, Math.ceil(transformPowerValue(3.2)));
+    var ticks = [];
+    for (var t = 0; t <= yMaxDisplay + 0.001; t += 1.0) {
+        ticks.push(Math.round(t * 100) / 100);
+    }
+
+    var chart2 = new Highcharts.Chart({
+        chart: { renderTo: 'chart2', type: 'spline', backgroundColor: '#3c3c3c', animation: false, marginRight: 20 },
+        title: { text: '01/29 10:30:18.1-1.功率曲线 方向:定位→反位 时长:12.00秒', style: { color: '#FFFFFF', fontSize: '12px' } },
+        xAxis: { title: { text: '时间(秒)', style: { color: '#ccc' } }, min: 0, max: 14, tickInterval: 1,
+            lineColor: '#FFF', lineWidth: 4, tickColor: '#FFF', tickWidth: 1, tickLength: 5,
+            labels: { style: { color: '#ccc' } }, gridLineColor: '#6a6a6a', gridLineWidth: 2 },
+        yAxis: {
+            _isPower: true, title: { text: '功率(KW)', style: { color: '#ccc' } },
+            min: 0, max: yMaxDisplay, tickPositions: ticks,
+            lineColor: '#FFF', lineWidth: 4, tickColor: '#FFF', tickWidth: 1, tickLength: 5,
+            labels: { style: { color: '#ccc' },
+                formatter: function() {
+                    var realVal = (this.value <= 3.0) ? this.value / 5.0 : 0.6 + (this.value - 3.0);
+                    return (realVal < 0.01) ? '0' : realVal.toFixed(1);
+                }
+            },
+            gridLineColor: '#6a6a6a', gridLineWidth: 2,
+            plotLines: [{ color: '#FF4444', dashStyle: 'dash', value: transformPowerValue(1.5), width: 1,
+                label: { text: '1.5 KW', style: { color: '#FF4444', fontSize: '10px' }, align: 'right' } }]
+        },
+        tooltip: { enabled: false },
+        legend: { align: 'center', layout: 'horizontal', verticalAlign: 'bottom', borderWidth: 0,
+            itemStyle: { color: '#ccc', fontSize: '10px' } },
+        plotOptions: { spline: { lineWidth: 1.5, marker: { enabled: false }, shadow: false } },
+        credits: { enabled: false },
+        series: [{ name: '功率', color: colorP, data: transformedPower }]
+    });
+    charts.chart2 = chart2;
+
+    document.getElementById('emptyState').style.display = 'none';
+
+    var t1 = new Date().getTime();
+    logPerf('renderCharts done: ' + (t1 - t0) + 'ms');
+}
+
+// ===== 渲染压测 =====
+function stressTest() {
+    var t0 = new Date().getTime();
+    var scenarios = ['fault', 'alarm', 'warning', 'warning2', 'normal', 'unknown',
+                     'warning', 'alarm', 'fault', 'normal'];
+    var log = document.getElementById('testLog');
+    log.innerHTML = '<div style="color:#FFAA00;">压测开始: 10次切换...</div>';
+
+    for (var i = 0; i < scenarios.length; i++) {
+        switchScenario(scenarios[i]);
+    }
+
+    var t1 = new Date().getTime();
+    var total = t1 - t0;
+    log.innerHTML += '<div style="margin-top:4px;">总计: ' + total + 'ms | 平均: ' + (total / 10).toFixed(1) + 'ms/次</div>';
+    log.innerHTML += '<div>JS错误: ' + (_errors.length > 0 ? _errors.join('; ') : '无') + '</div>';
+
+    // 检查DOM状态
+    var bar = document.getElementById('diagBar');
+    var ul = document.getElementById('timeListUl');
+    log.innerHTML += '<div>诊断条高度: ' + bar.offsetHeight + 'px | 时间列表项数: ' + ul.getElementsByTagName('li').length + '</div>';
+    log.innerHTML += '<div>图表grid top: ' + document.getElementById('chartGrid').offsetTop + 'px (应 ≥ 64)</div>';
+}
+
+// ===== 初始化 =====
+function init() {
+    var btn = document.getElementById('btnTestRender');
+    btn.onclick = stressTest;
+
+    renderCharts();
+    switchScenario('unknown');
+
+    // 初始时间列表
+    updateTimeList('unknown');
+
+    var log = document.getElementById('testLog');
+    log.innerHTML = '<div style="color:#66DD66;">初始化完成。Highcharts版本: ' + (typeof Highcharts !== 'undefined' ? Highcharts.version : 'NOT_LOADED') + '</div>';
+    log.innerHTML += '<div>IE模式: ' + (document.documentMode || 'n/a') + '</div>';
+    log.innerHTML += '<div>诊断条top: ' + document.getElementById('diagBar').offsetTop + 'px | grid top: ' + document.getElementById('chartGrid').offsetTop + 'px</div>';
+}
+
+window.onload = init;
+</script>
+</body>
+</html>

@@ -217,6 +217,26 @@ body {
     margin-top: 2px;
 }
 
+/* 时间列表级别着色 */
+.time-list li.lvl-normal { color: #aaa; }
+.time-list li.lvl-warning { color: #FFD54F; border-left: 3px solid #FFD54F; padding-left: 9px; }
+.time-list li.lvl-alarm { color: #FF9800; border-left: 3px solid #FF9800; padding-left: 9px; }
+.time-list li.lvl-fault { color: #FF4444; border-left: 3px solid #FF4444; padding-left: 9px; }
+.time-list li.lvl-normal.active { color: #FFAA00; font-weight: bold; background: #2a2a5e; }
+.time-list li.lvl-warning.active { color: #FFD54F; font-weight: bold; background: #2a2a5e; }
+.time-list li.lvl-alarm.active { color: #FF9800; font-weight: bold; background: #2a2a5e; }
+.time-list li.lvl-fault.active { color: #FF4444; font-weight: bold; background: #2a2a5e; }
+
+/* 日期角标 */
+.cal-badge {
+    display: block;
+    font-size: 9px;
+    line-height: 1;
+    margin-top: 1px;
+}
+.cal-badge-fault { color: #FF4444; }
+.cal-badge-warning { color: #FF9800; }
+
 /* 分割线 */
 .divider { border: none; border-top: 1px solid #2a2a4e; margin: 4px 0; }
 </style>
@@ -261,6 +281,9 @@ body {
 </div>
 
 <script>
+// ===== IE8 console polyfill（WebBrowser ScriptErrorsSuppressed=true 环境下需此项） =====
+window.console = window.console || { log: function(){}, warn: function(){}, error: function(){} };
+
 // ===== IE7/IE8 JSON 兼容层 =====
 if (typeof JSON === 'undefined' || typeof JSON.parse === 'undefined') {
     window.JSON = { parse: function(t) { return (new Function('return ' + t))(); } };
@@ -279,6 +302,7 @@ var calView = 'day';       // 当前视图：'day' | 'month' | 'year'
 var calYear = 0;           // 当前显示的年份
 var calMonth = 0;          // 当前显示的月份
 var todayStr = '';         // 今天的日期字符串 "yyyy-MM-dd"
+var alarmBadges = {};      // D5: 日期角标数据 { "2026-01-29": {"预警":1,"报警":0,"故障":2}, ... }
 
 // 初始化 todayStr
 (function() {
@@ -416,7 +440,20 @@ function renderCalendar() {
     else if (calView === 'year')  { renderYearView(); }
 }
 
-// ===== 日视图：当月日期网格 =====
+// ===== D5: 接收日期角标数据 =====
+function setAlarmBadges(alarmsJson) {
+    var data;
+    if (typeof alarmsJson === 'string') {
+        try { data = JSON.parse(alarmsJson); } catch(e) { data = null; }
+    } else {
+        data = alarmsJson;
+    }
+    alarmBadges = data || {};
+    // 重新渲染日历以显示角标
+    if (allDates.length > 0) {
+        renderCalendar();
+    }
+}
 function renderDayView() {
     var grid = document.getElementById('calendarGrid');
     var header = document.getElementById('calMonthYear');
@@ -451,7 +488,7 @@ function renderDayView() {
         cellCount++;
     }
 
-    // 日期格
+    // 日期格（D5: 含报警角标）
     for (var d = 1; d <= daysInMonth; d++) {
         var dateStr = calYear + '-' +
             (calMonth < 10 ? '0' : '') + calMonth + '-' +
@@ -466,11 +503,22 @@ function renderDayView() {
         if (isSelected) cls += ' selected';
         if (isToday && !isSelected) cls += ' today';
 
+        // D5: 角标 — 该日非正常计数
+        var badgeHtml = '';
+        var badge = alarmBadges[dateStr];
+        if (badge) {
+            var totalAbnormal = (badge['预警'] || 0) + (badge['报警'] || 0) + (badge['故障'] || 0);
+            if (totalAbnormal > 0) {
+                var badgeCls = (badge['故障'] || 0) > 0 ? 'cal-badge-fault' : 'cal-badge-warning';
+                badgeHtml = '<span class="cal-badge ' + badgeCls + '">' + totalAbnormal + '</span>';
+            }
+        }
+
         html += '<div class="' + cls + '"';
         if (hasData) {
             html += ' data-date="' + dateStr + '"';
         }
-        html += '>' + d + '</div>';
+        html += '>' + d + badgeHtml + '</div>';
         cellCount++;
     }
 
@@ -650,7 +698,7 @@ function calNextMonth() {
     renderCalendar();
 }
 
-// ===== 时间列表更新 =====
+// ===== 时间列表更新（D5 扩展：支持 [{ts, level}, ...] 格式，兼容旧纯数字数组） =====
 function setTimes(timesJson) {
     var timestamps;
     if (typeof timesJson === 'string') {
@@ -668,11 +716,35 @@ function setTimes(timesJson) {
         return;
     }
 
+    // 级别→CSS类名映射
+    function getLevelClass(level) {
+        if (level === '预警') return 'lvl-warning';
+        if (level === '报警') return 'lvl-alarm';
+        if (level === '故障') return 'lvl-fault';
+        return 'lvl-normal';
+    }
+
     for (var i = 0; i < timestamps.length; i++) {
-        var ts = timestamps[i];
+        var item = timestamps[i];
+        // 兼容旧格式：纯数字 → {ts: 数字, level: "正常"}
+        var ts, level;
+        if (typeof item === 'object') {
+            ts = item.ts;
+            level = item.level || '正常';
+        } else {
+            ts = item;
+            level = '正常';
+        }
+
         var li = document.createElement('li');
-        li.innerText = formatTimestamp(ts);
+        var timeStr = formatTimestamp(ts);
+        if (level !== '正常') {
+            timeStr = timeStr + ' ' + level;
+        }
+        li.innerText = timeStr;
+        li.className = getLevelClass(level);
         li.setAttribute('data-ts', ts);
+        li.setAttribute('data-level', level);
         li.onclick = function() {
             selectTime(this.getAttribute('data-ts'));
         };
@@ -698,6 +770,26 @@ function setTimes(timesJson) {
     }
 
     document.getElementById('timeInfo').innerText = '共 ' + timestamps.length + ' 条动作记录';
+}
+
+// 更新 setSelectedTime 以支持级别着色保持
+function setSelectedTime(timestamp) {
+    currentTimestamp = timestamp;
+    var items = document.querySelectorAll('#timeList li');
+    for (var i = 0; i < items.length; i++) {
+        var ts = items[i].getAttribute('data-ts');
+        if (ts === timestamp) {
+            // 保持级别 CSS 类，加 active
+            var level = items[i].getAttribute('data-level') || '正常';
+            items[i].className = (level === '正常' ? 'lvl-normal' : ('lvl-' + (level === '预警' ? 'warning' : level === '报警' ? 'alarm' : 'fault'))) + ' active';
+        } else {
+            var level2 = items[i].getAttribute('data-level') || '正常';
+            if (level2 === '预警') items[i].className = 'lvl-warning';
+            else if (level2 === '报警') items[i].className = 'lvl-alarm';
+            else if (level2 === '故障') items[i].className = 'lvl-fault';
+            else items[i].className = 'lvl-normal';
+        }
+    }
 }
 
 function setSelectedTime(timestamp) {

@@ -1,5 +1,7 @@
 # Slice 4: MainForm 壳 + WebBrowser 侧边栏
 
+> **状态（2026-07-08 代码审核）**: ✅ 已实现。偏差：分栏用 SplitContainer 固定 230px，非 TableLayoutPanel 18%/82% 比例（config 的 `sidebarWidthPercent` 未消费）；日期选择升级为日/月/年三级日历（超出规格）。
+
 ## Type
 
 AFK

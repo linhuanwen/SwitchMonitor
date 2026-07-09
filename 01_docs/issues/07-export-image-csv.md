@@ -1,5 +1,7 @@
 # Slice 7: 导出图片 + CSV
 
+> **状态（2026-07-08 代码审核）**: ❌ 未实现（假按钮）。前端按钮调用 `window.external.ExportPng()/ExportCsv()`，但 C# JSBridge 无这两个方法，异常被 `try{}catch(e){}` 静默吞掉——点击无任何反应。C# 端截图/CSV 写出/SaveFileDialog 整条链路缺失。
+
 ## Type
 
 AFK
