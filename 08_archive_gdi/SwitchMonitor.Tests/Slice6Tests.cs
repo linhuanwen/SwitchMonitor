@@ -341,7 +341,7 @@ namespace SwitchMonitor.Tests
             {
                 // MainForm 不便于直接测试状态栏 label，但可测试格式化逻辑
                 // 通过反射或静态辅助方法验证格式
-                string switchId = "1-1";
+                string switchId = "1-J";
                 string date = "2026-06-29";
                 string time = "17:01:41";
                 int actionCount = 25;

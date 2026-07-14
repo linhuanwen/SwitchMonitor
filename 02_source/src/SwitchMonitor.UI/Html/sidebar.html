@@ -8,14 +8,14 @@
 body {
     background: #1a1a2e;
     color: #e0e0e0;
-    font: 12px SimSun, sans-serif;
+    font: 14px SimSun, sans-serif;
     overflow: hidden;
     -webkit-user-select: none;
     user-select: none;
 }
 .section { padding: 8px 10px; }
 .section-title {
-    font-size: 11px;
+    font-size: 13px;
     color: #666;
     padding: 6px 10px 4px;
     border-bottom: 1px solid #2a2a4e;
@@ -47,21 +47,21 @@ body {
     text-align: center;
     padding: 3px 0 6px 0;
     position: relative;
-    height: 20px;
-    line-height: 20px;
+    height: 24px;
+    line-height: 24px;
 }
 .cal-nav {
     position: absolute;
     top: 0;
-    width: 22px;
-    height: 20px;
+    width: 26px;
+    height: 24px;
     background: #333355;
     color: #ccc;
     border: 1px solid #444466;
-    font: 11px SimSun;
+    font: 13px SimSun;
     cursor: pointer;
     text-align: center;
-    line-height: 18px;
+    line-height: 22px;
     padding: 0;
 }
 .cal-nav:hover { background: #444477; color: #fff; }
@@ -69,7 +69,7 @@ body {
 #calNext { right: 0; }
 .cal-month-year {
     color: #ddd;
-    font-size: 12px;
+    font-size: 14px;
     font-weight: bold;
     cursor: pointer;
     padding: 2px 6px;
@@ -89,7 +89,7 @@ body {
     float: left;
     width: 14.28%;
     text-align: center;
-    font-size: 10px;
+    font-size: 12px;
     color: #666;
     padding: 2px 0;
 }
@@ -102,11 +102,16 @@ body {
     float: left;
     width: 14.28%;
     text-align: center;
-    padding: 4px 0;
-    font-size: 11px;
+    padding: 2px 0;
+    font-size: 13px;
     cursor: default;
     color: #444;
     font-family: Consolas, monospace;
+    min-height: 26px;  /* 确保角标不撑高单元格导致浮动错位 */
+}
+.cal-row {
+    clear: both;
+    overflow: hidden;
 }
 .cal-cell.has-data {
     color: #ddd;
@@ -133,8 +138,8 @@ body {
     float: left;
     width: 33.33%;
     text-align: center;
-    padding: 8px 0;
-    font-size: 12px;
+    padding: 5px 0;
+    font-size: 14px;
     cursor: pointer;
     color: #ddd;
 }
@@ -161,8 +166,8 @@ body {
     float: left;
     width: 33.33%;
     text-align: center;
-    padding: 8px 0;
-    font-size: 12px;
+    padding: 5px 0;
+    font-size: 14px;
     cursor: pointer;
     color: #ddd;
 }
@@ -185,14 +190,15 @@ body {
 }
 
 /* 时间列表 */
-.time-container { overflow-y: auto; }
+.time-container { position: relative; height: 240px; overflow-y: auto; }
 .time-list { list-style: none; }
 .time-list li {
-    padding: 5px 12px;
+    padding: 3px 10px;
     cursor: pointer;
     color: #aaa;
     font-family: Consolas, monospace;
-    font-size: 13px;
+	    min-height: 24px;
+    font-size: 15px;
 }
 .time-list li:hover { background: #252545; color: #fff; }
 .time-list li.active {
@@ -206,13 +212,13 @@ body {
     color: #555;
     text-align: center;
     padding: 20px 10px;
-    font-size: 11px;
+    font-size: 13px;
 }
 
 /* 信息提示 */
 .info-text {
     color: #777;
-    font-size: 10px;
+    font-size: 12px;
     padding: 2px 8px;
     margin-top: 2px;
 }
@@ -230,7 +236,7 @@ body {
 /* 日期角标 */
 .cal-badge {
     display: block;
-    font-size: 9px;
+    font-size: 11px;
     line-height: 1;
     margin-top: 1px;
 }
@@ -265,10 +271,8 @@ body {
             <div style="text-align:center;color:#555;padding:10px;">请选择转辙机</div>
         </div>
     </div>
-    <div class="info-text" id="dateInfo"></div>
-</div>
 
-<hr class="divider">
+    <hr class="divider">
 
 <div class="section">
     <div class="section-title">动作时间</div>
@@ -365,7 +369,6 @@ function selectSwitch(switchId) {
 
     // 清空时间列表
     document.getElementById('timeList').innerHTML = '<li class="empty-hint">加载中...</li>';
-    document.getElementById('dateInfo').innerText = '';
     document.getElementById('timeInfo').innerText = '';
 
     // 通知 C#
@@ -403,7 +406,6 @@ function setDates(datesJson) {
         calMonth = 0;
         document.getElementById('calendarGrid').innerHTML = '<div style="text-align:center;color:#555;padding:10px;">暂无数据</div>';
         document.getElementById('calMonthYear').innerText = '----年--月';
-        document.getElementById('dateInfo').innerText = '';
         document.getElementById('timeList').innerHTML = '<li class="empty-hint">该转辙机无数据</li>';
         return;
     }
@@ -416,7 +418,6 @@ function setDates(datesJson) {
     calView = 'day';
 
     renderCalendar();
-    document.getElementById('dateInfo').innerText = '共 ' + allDates.length + ' 天数据';
 }
 
 // ===== C# 通知选中某个日期时调用，同步日历高亮 =====
@@ -479,13 +480,12 @@ function renderDayView() {
     // 当月总天数
     var daysInMonth = new Date(calYear, calMonth, 0).getDate();
 
-    var html = '';
-    var cellCount = 0;
+    // 先收集所有日期格到数组，再按行（7格/行）包装到 cal-row 容器中
+    var cells = [];
 
     // 1号之前的空白格
     for (var i = 0; i < startCol; i++) {
-        html += '<div class="cal-cell empty"></div>';
-        cellCount++;
+        cells.push('<div class="cal-cell empty"></div>');
     }
 
     // 日期格（D5: 含报警角标）
@@ -514,26 +514,35 @@ function renderDayView() {
             }
         }
 
-        html += '<div class="' + cls + '"';
+        var cellHtml = '<div class="' + cls + '"';
         if (hasData) {
-            html += ' data-date="' + dateStr + '"';
+            cellHtml += ' data-date="' + dateStr + '"';
         }
-        html += '>' + d + badgeHtml + '</div>';
-        cellCount++;
+        cellHtml += '>' + d + badgeHtml + '</div>';
+        cells.push(cellHtml);
     }
 
     // 填充剩余行（最多6行=42格）
-    while (cellCount < 42) {
-        html += '<div class="cal-cell empty"></div>';
-        cellCount++;
+    while (cells.length < 42) {
+        cells.push('<div class="cal-cell empty"></div>');
+    }
+
+    // 按 7 格一行包装到 cal-row 容器中（IE8 兼容：clear:both 防止角标撑高导致的浮动错位）
+    var html = '';
+    for (var r = 0; r < cells.length; r += 7) {
+        html += '<div class="cal-row">';
+        for (var c = r; c < r + 7 && c < cells.length; c++) {
+            html += cells[c];
+        }
+        html += '</div>';
     }
 
     grid.innerHTML = html;
 
     // 对有数据的日期绑定点击事件
-    var cells = grid.getElementsByTagName('div');
-    for (var i = 0; i < cells.length; i++) {
-        var cell = cells[i];
+    var cellDivs = grid.getElementsByTagName('div');
+    for (var i = 0; i < cellDivs.length; i++) {
+        var cell = cellDivs[i];
         if (cell.className.indexOf('has-data') >= 0) {
             cell.onclick = function() {
                 onDateCellClick(this.getAttribute('data-date'));
@@ -541,7 +550,6 @@ function renderDayView() {
         }
     }
 }
-
 // ===== 日视图日期点击 =====
 function onDateCellClick(date) {
     if (!date) return;
@@ -751,24 +759,6 @@ function setTimes(timesJson) {
         list.appendChild(li);
     }
 
-    // 自适应时间列表高度
-    var container = document.getElementById('timeContainer');
-    var bodyHeight = document.body.clientHeight || document.documentElement.clientHeight;
-    var switchSection = document.getElementById('switchList').parentNode;
-    var dateSection = document.getElementById('calendarContainer').parentNode;
-    var topHeight = 0;
-    if (switchSection) topHeight += switchSection.offsetHeight;
-    if (dateSection) topHeight += dateSection.offsetHeight;
-    var dividers = document.querySelectorAll('.divider');
-    for (var d = 0; d < dividers.length; d++) {
-        topHeight += dividers[d].offsetHeight;
-    }
-    var reservedBottom = 20;
-    if (bodyHeight > topHeight + reservedBottom) {
-        container.style.maxHeight = (bodyHeight - topHeight - reservedBottom) + 'px';
-        container.style.overflowY = 'auto';
-    }
-
     document.getElementById('timeInfo').innerText = '共 ' + timestamps.length + ' 条动作记录';
 }
 
@@ -792,23 +782,62 @@ function setSelectedTime(timestamp) {
     }
 }
 
-function setSelectedTime(timestamp) {
-    currentTimestamp = timestamp;
-    var items = document.querySelectorAll('#timeList li');
-    for (var i = 0; i < items.length; i++) {
-        if (items[i].getAttribute('data-ts') === timestamp) {
-            items[i].className = 'active';
-        } else {
-            items[i].className = '';
-        }
-    }
-}
+// （原此处有重复的 setSelectedTime 定义，已删除。保留上方保留级别着色的版本。）
 
 // ===== 时间点击 =====
 function selectTime(timestamp) {
     setSelectedTime(timestamp);
     try { window.external.SelectTime(timestamp); } catch(e) {}
 }
+
+// ===== 键盘上下键导航时间点 =====
+document.onkeydown = function(e) {
+    e = e || window.event;
+    var key = e.keyCode || e.which;
+    if (key === 38 || key === 40) {
+        if (!currentTimestamp) return true;
+
+        var items = document.querySelectorAll('#timeList li');
+        if (!items || items.length === 0) return true;
+
+        // 查找当前选中项索引
+        var currentIndex = -1;
+        for (var i = 0; i < items.length; i++) {
+            if (items[i].getAttribute('data-ts') === String(currentTimestamp)) {
+                currentIndex = i;
+                break;
+            }
+        }
+        if (currentIndex < 0) return true;
+
+        var newIndex = currentIndex;
+        if (key === 38) newIndex = currentIndex - 1; // 上
+        else if (key === 40) newIndex = currentIndex + 1; // 下
+
+        if (newIndex >= 0 && newIndex < items.length) {
+            var ts = items[newIndex].getAttribute('data-ts');
+            if (ts) {
+                selectTime(ts);
+                // 智能滚动：仅当选中项超出可视区域时才滚动容器
+                var container = document.getElementById('timeContainer');
+                var itemTop = items[newIndex].offsetTop;
+                var itemBottom = itemTop + items[newIndex].offsetHeight;
+                var viewTop = container.scrollTop;
+                var viewBottom = viewTop + container.clientHeight;
+                if (itemTop < viewTop) {
+                    container.scrollTop = itemTop;
+                } else if (itemBottom > viewBottom) {
+                    container.scrollTop = itemBottom - container.clientHeight;
+                }
+            }
+        }
+
+        if (e.preventDefault) e.preventDefault();
+        e.returnValue = false;
+        return false;
+    }
+    return true;
+};
 
 // ===== 格式化 Unix 时间戳为 HH:mm:ss =====
 function formatTimestamp(ts) {

@@ -66,7 +66,7 @@ SwitchMonitor/
 ### CSM2010 道岔曲线 (SwitchCurve*.dat)
 - 魔数: `CSM2010\x00`
 - 24 字节索引记录 → 数据块（4B timestamp + 4B flags + 4B sample_count + 采样值）
-- flags: `16777216`=A相, `33554432`=B相, `50332416`=C相, `0`=功率
+- flags: 根据文件索引确定相位 — byte3=N+offset，公式 `offset+1` → 1=A相/2=B相/3=C相（offset 0=A, 1=B, 2=C, 依据 DC.ini 通道定义）
 - 采样率: 25 Hz，每相约 150-790 个采样点
 
 ### Digit 开关量 (Digit*.dat)

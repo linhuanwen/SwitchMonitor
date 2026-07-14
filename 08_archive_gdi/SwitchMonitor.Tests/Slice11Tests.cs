@@ -112,6 +112,8 @@ namespace SwitchMonitor.Tests
                         }
                     },
                     ""directionMapping"": {
+                        ""DB"": { ""meaning"": ""定位表示"", ""note"": ""DB 继电器吸起=道岔在定位"" },
+                        ""FB"": { ""meaning"": ""反位表示"", ""note"": ""FB 继电器吸起=道岔在反位"" },
                         ""H"": { ""meaning"": ""待确认"", ""note"": ""可能是定位或反位其中之一"" },
                         ""B"": { ""meaning"": ""待确认"", ""note"": ""与H互斥"" }
                     }
@@ -144,8 +146,8 @@ namespace SwitchMonitor.Tests
 
                 // 验证 directionMapping
                 Assert(config.DirectionMapping != null, "DirectionMapping 非 null");
-                Assert(config.DirectionMapping.Count == 2,
-                    string.Format("DirectionMapping 有 2 条 (实际: {0})", config.DirectionMapping.Count));
+                Assert(config.DirectionMapping.Count == 4,
+                    string.Format("DirectionMapping 有 4 条 (实际: {0})", config.DirectionMapping.Count));
                 Assert(config.DirectionMapping.ContainsKey("H"), "包含方向 H");
                 Assert(config.DirectionMapping["H"].Meaning == "待确认", "H.Meaning = 待确认");
                 Assert(config.DirectionMapping["H"].Note == "可能是定位或反位其中之一", "H.Note 正确");
@@ -796,6 +798,8 @@ namespace SwitchMonitor.Tests
                     }
                 },
                 ""directionMapping"": {
+                    ""DB"": { ""meaning"": ""定位表示"", ""note"": ""DB 继电器吸起=道岔在定位"" },
+                    ""FB"": { ""meaning"": ""反位表示"", ""note"": ""FB 继电器吸起=道岔在反位"" },
                     ""H"": { ""meaning"": ""待确认"", ""note"": ""可能是定位或反位其中之一"" },
                     ""B"": { ""meaning"": ""待确认"", ""note"": ""与H互斥"" }
                 }

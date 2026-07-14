@@ -1,12 +1,12 @@
 {
   "switchGroups": [
-    {"id": "1-1", "label": "1-1", "dataFileIndex": 0},
+    {"id": "1-J", "label": "1-J", "dataFileIndex": 0},
     {"id": "1-X", "label": "1-X", "dataFileIndex": 4},
-    {"id": "3-1", "label": "3-1", "dataFileIndex": 8},
+    {"id": "3-J", "label": "3-J", "dataFileIndex": 8},
     {"id": "3-X", "label": "3-X", "dataFileIndex": 12},
-    {"id": "2-1", "label": "2-1", "dataFileIndex": 16},
+    {"id": "2-J", "label": "2-J", "dataFileIndex": 16},
     {"id": "2-X", "label": "2-X", "dataFileIndex": 20},
-    {"id": "4-1", "label": "4-1", "dataFileIndex": 24},
+    {"id": "4-J", "label": "4-J", "dataFileIndex": 24},
     {"id": "4-X", "label": "4-X", "dataFileIndex": 28}
   ],
   "dataSourceDir": "../../03_raw_data/sanshuibei_csv",

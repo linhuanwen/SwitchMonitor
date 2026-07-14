@@ -56,7 +56,7 @@ namespace SwitchMonitor.Diagnosis
         /// 对一次道岔动作进行诊断。
         /// 判定顺序：R0 → R1 → R2 命中即终止；否则 R3-R8 全部评估可多命。
         /// </summary>
-        public List<DiagnosisResult> Diagnose(string switchId, CurveFeatures f)
+        public List<DiagnosisResult> Diagnose(string switchId, CurveFeatures f, string direction = null)
         {
             var results = new List<DiagnosisResult>();
 
@@ -75,11 +75,41 @@ namespace SwitchMonitor.Diagnosis
                 return results; // R0 终止
             }
 
-            // === 获取该道岔基线 ===
+            // === 获取该道岔对应方向的基线 ===
             SwitchBaseline baseline = null;
             if (_baselines != null && _baselines.Switches != null)
             {
-                _baselines.Switches.TryGetValue(switchId, out baseline);
+                // 1) 精确匹配：switchId + direction
+                string exactKey = BaselineStore.MakeKey(switchId, direction);
+                if (!_baselines.Switches.TryGetValue(exactKey, out baseline))
+                {
+                    // 2) 降级：另一方向的基线（同 switchId 但不同方向）
+                    string fallbackDir = (direction == BaselineStore.DirNormalToReverse)
+                        ? BaselineStore.DirReverseToNormal
+                        : BaselineStore.DirNormalToReverse;
+                    string fallbackKey = BaselineStore.MakeKey(switchId, fallbackDir);
+                    if (_baselines.Switches.TryGetValue(fallbackKey, out baseline))
+                    {
+                        if (!_warnedNoBaseline.Contains(switchId + "|dir"))
+                        {
+                            _warnedNoBaseline.Add(switchId + "|dir");
+                            Logger.Warning(string.Format("道岔{0}缺少方向'{1}'的基线，降级使用'{2}'方向基线",
+                                switchId, direction, fallbackDir));
+                        }
+                    }
+                    else
+                    {
+                        // 3) 再降级：尝试无方向的旧格式 key（向后兼容）
+                        if (!_baselines.Switches.TryGetValue(switchId, out baseline))
+                        {
+                            if (!_warnedNoBaseline.Contains(switchId))
+                            {
+                                _warnedNoBaseline.Add(switchId);
+                                Logger.Warning("道岔" + switchId + "无基线，仅执行硬规则");
+                            }
+                        }
+                    }
+                }
             }
 
             // === 无基线：仅评估 R1 的 isFullWindow 分支 ===
@@ -149,6 +179,9 @@ namespace SwitchMonitor.Diagnosis
 
             // R8: 缓放段异常
             EvaluateR8(f, baseline, results);
+
+            // R9: 锁闭段异常
+            EvaluateR9(f, baseline, results);
 
             // ── D6: T1 渐变劣化 + P1 逐点对比（不终止，可多命）──
             EvaluateT1(switchId, f, baseline, results);
@@ -349,6 +382,70 @@ namespace SwitchMonitor.Diagnosis
                 });
             }
         }
+
+        // ── R9: 锁闭段异常 ──
+
+        private void EvaluateR9(CurveFeatures f, SwitchBaseline b, List<DiagnosisResult> results)
+        {
+            RuleThreshold t = GetThreshold("R9");
+            if (t == null || !t.enabled) return;
+
+            // 无基线时不触发
+            if (b == null) return;
+
+            // R9 特例：LockMean == 0 视为"锁闭段缺失"（极短曲线无锁闭段）
+            if (f.LockMean == 0.0)
+            {
+                // activeEnd > 50 本该有锁闭段但提取为 0，视为异常
+                if (f.ActiveEnd > 50)
+                {
+                    results.Add(new DiagnosisResult
+                    {
+                        RuleId = "R9",
+                        RuleName = "锁闭段异常",
+                        Level = t.level,
+                        Description = "锁闭段缺失（转换与缓放之间无卸载凹口），疑似锁闭机构卡滞/开闭器异常",
+                        Value = 0.0,
+                        Reference = b.RefLockMean
+                    });
+                }
+                return;
+            }
+
+            // 判据①：偏离参考值 ±deviationRatio
+            double deviation = Math.Abs(f.LockMean - b.RefLockMean) / Math.Max(b.RefLockMean, 0.001);
+            if (deviation > t.deviationRatio)
+            {
+                string direction = f.LockMean > b.RefLockMean ? "偏高" : "偏低";
+                results.Add(new DiagnosisResult
+                {
+                    RuleId = "R9",
+                    RuleName = "锁闭段异常",
+                    Level = t.level,
+                    Description = string.Format("锁闭段功率{0:F3}kW，{1}参考{2:F3}kW超过{3:P0}，疑似锁闭机构卡滞/开闭器异常",
+                        f.LockMean, direction, b.RefLockMean, t.deviationRatio),
+                    Value = f.LockMean,
+                    Reference = b.RefLockMean
+                });
+                return;
+            }
+
+            // 判据②：锁闭段显著高于转换段（凹口消失）
+            if (f.ConvMean > 0 && f.LockMean > f.ConvMean * 1.2)
+            {
+                results.Add(new DiagnosisResult
+                {
+                    RuleId = "R9",
+                    RuleName = "锁闭段异常",
+                    Level = t.level,
+                    Description = string.Format("锁闭段功率{0:F3}kW，显著高于转换段{1:F3}kW（凹口消失），疑似锁闭机构卡滞",
+                        f.LockMean, f.ConvMean),
+                    Value = f.LockMean,
+                    Reference = f.ConvMean
+                });
+            }
+        }
+
         // ── T1: 渐变劣化预警 ──
 
         private void EvaluateT1(string switchId, CurveFeatures f, SwitchBaseline b, List<DiagnosisResult> results)

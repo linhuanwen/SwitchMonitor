@@ -37,6 +37,12 @@ namespace SwitchMonitor.Tests
             D6Tests.Run();
 
             Console.WriteLine();
+            Console.WriteLine("=== D7 Current Baseline Tests ===");
+            Console.WriteLine();
+
+            D7Tests.Run();
+
+            Console.WriteLine();
             Console.WriteLine("=== 测试完成: {0} 通过, {1} 失败 ===", _passed, _failed);
         }
 

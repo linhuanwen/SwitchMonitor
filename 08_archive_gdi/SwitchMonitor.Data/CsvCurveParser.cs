@@ -10,14 +10,14 @@ namespace SwitchMonitor.Data
     /// <summary>
     /// CSM2010 CSV 导出的 SwitchCurve(*).csv 文件解析器。
     /// CSV 格式: timestamp,datetime,phase,s0,s1,...,s789
-    /// Phase 值: 16777216=A相, 33554432=B相, 50332416=C相, 0=功率
+    /// Phase 值: byte3 编码 — 文件索引+offset（offset 0=A相, 1=B相, 2=C相, 依据 DC.ini）, 功率=文件索引+3
     /// </summary>
     public class CsvCurveParser
     {
-        // Phase 常量
-        public const uint PHASE_A = 16777216;
-        public const uint PHASE_B = 33554432;
-        public const uint PHASE_C = 50332416;
+        // Phase 常量（对应文件索引 0 时的 flag 值）
+        public const uint PHASE_A = 50332416;    // byte3=3 → offset=0 → A相
+        public const uint PHASE_B = 16777216;    // byte3=1 → offset=1 → B相
+        public const uint PHASE_C = 33554432;    // byte3=2 → offset=2 → C相
         public const uint PHASE_POWER = 0;
 
         /// <summary>解析过程中遇到的警告和错误</summary>
@@ -157,9 +157,9 @@ namespace SwitchMonitor.Data
                 default:
                     // 对未识别的 phase 值，尝试用高位字节推断
                     uint highByte = (phase >> 24) & 0xFF;
-                    if (highByte == 1) return "A";
-                    if (highByte == 2) return "B";
-                    if (highByte == 3) return "C";
+                    if (highByte == 3) return "A";  // offset=0
+                    if (highByte == 1) return "B";  // offset=1 → B相
+                    if (highByte == 2) return "C";  // offset=2 → C相
                     return "P"; // 默认按功率处理
             }
         }

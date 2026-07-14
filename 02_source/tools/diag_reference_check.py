@@ -20,8 +20,8 @@ from pathlib import Path
 DEFAULT_DIR = Path(__file__).resolve().parents[2] / "03_raw_data" / "sanshuibei_csv"
 
 # 功率文件 → switchId（对应 config.json 的 switchGroups: 电流文件N ↔ 功率文件N+3）
-POWER_FILES = {3: "1-1", 7: "1-X", 11: "3-1", 15: "3-X",
-               19: "2-1", 23: "2-X", 27: "4-1", 31: "4-X"}
+POWER_FILES = {3: "1-J", 7: "1-X", 11: "3-J", 15: "3-X",
+               19: "2-J", 23: "2-X", 27: "4-J", 31: "4-X"}
 
 # 默认阈值（与 Rules/thresholds.json 模板同值）
 TH = dict(R1_durOverRefSeconds=3.0, R2_durUnderRefRatio=0.6, R3_maxDeviationSeconds=0.5,
@@ -83,14 +83,26 @@ def extract(v):
         f['stepRatio'] = round(statistics.mean(conv[-third:]) / max(statistics.mean(conv[:third]), 0.01), 3)
     else:
         f['stepRatio'] = 1.0
+    lock_seg = v[last - 40:last - 22] if last > 50 else []
+    if lock_seg:
+        # 退化策略：last-40 < 0 时退化为 [0, last-22)
+        if last - 40 < 0:
+            lock_seg = v[0:last - 22]
+        f['lockMean'] = round(statistics.mean(lock_seg), 3)
+    else:
+        f['lockMean'] = 0.0
     tail = v[last - 22:last - 2] if last > 30 else []
     f['tailMean'] = round(statistics.mean(tail), 3) if tail else 0.0
     return f
 
 
-def build_baseline(feats, min_samples=30):
-    """基线计算 — CONTEXT.md §5。feats 为 extract() 结果列表。"""
+def build_baseline(feats, min_samples=30, direction=None):
+    """基线计算 — CONTEXT.md §5。feats 为 extract() 结果列表。
+    当 direction 不为 None 时，仅使用匹配方向的特征。
+    """
     pool = [f for f in feats if f.get('isValid') and not f['isFullWindow'] and f['durationSec'] >= 2.4]
+    if direction is not None:
+        pool = [f for f in pool if f.get('direction') == direction]
     if not pool:
         return None
     med = statistics.median([f['durationSec'] for f in pool])
@@ -102,8 +114,10 @@ def build_baseline(feats, min_samples=30):
         refSpikePeak=round(statistics.median([f['spikePeak'] for f in normal]), 3),
         refUnlockMean=round(statistics.median([f['unlockMean'] for f in normal]), 3),
         refConvMean=round(statistics.median([f['convMean'] for f in normal]), 3),
+        refLockMean=round(statistics.median([f['lockMean'] for f in normal]), 3),
         refTailMean=round(statistics.median([f['tailMean'] for f in normal]), 3),
-        sampleCount=len(normal))
+        sampleCount=len(normal),
+        direction=direction)
 
 
 def diagnose(f, b):
@@ -144,15 +158,25 @@ def cmd_golden(src):
 
 
 def cmd_baseline(src):
-    print(f"{'道岔':6s} {'样本':>5s} {'时长s':>7s} {'峰值':>7s} {'解锁':>7s} {'转换':>7s} {'缓放':>7s}")
+    DIRS = ["定位→反位", "反位→定位"]
+    print(f"{'道岔':6s} {'方向':8s} {'样本':>5s} {'时长s':>7s} {'峰值':>7s} {'解锁':>7s} {'转换':>7s} {'锁闭':>7s} {'缓放':>7s}")
     for pf, sid in POWER_FILES.items():
         rows = read_power_rows(src / f"SwitchCurve({pf}).csv")
-        b = build_baseline([extract(v) for _, _, v in rows])
-        if b is None:
-            print(f"{sid:6s} 样本不足")
-            continue
-        print(f"{sid:6s} {b['sampleCount']:5d} {b['refDurationSec']:7.2f} {b['refSpikePeak']:7.3f} "
-              f"{b['refUnlockMean']:7.3f} {b['refConvMean']:7.3f} {b['refTailMean']:7.3f}")
+        # 按时间戳排序，交替分配方向（与 DataPipeline.cs 一致）
+        rows.sort(key=lambda r: r[0])
+        feats = []
+        for i, (ts, dt, v) in enumerate(rows):
+            f = extract(v)
+            f['direction'] = DIRS[i % 2]
+            f['_ts'] = ts
+            feats.append(f)
+        for dir_ in DIRS:
+            b = build_baseline(feats, direction=dir_)
+            if b is None:
+                print(f"{sid:6s} {dir_:8s} 样本不足")
+                continue
+            print(f"{sid:6s} {dir_:8s} {b['sampleCount']:5d} {b['refDurationSec']:7.2f} {b['refSpikePeak']:7.3f} "
+                  f"{b['refUnlockMean']:7.3f} {b['refConvMean']:7.3f} {b['refLockMean']:7.3f} {b['refTailMean']:7.3f}")
 
 
 def cmd_dryrun(src):

@@ -45,7 +45,7 @@ namespace SwitchMonitor.Diagnosis
         /// 对一次道岔动作执行完整诊断流程：特征提取 → 规则评估 → 聚合 → 日志。
         /// </summary>
         /// <param name="engine">已初始化的诊断引擎</param>
-        /// <param name="switchId">道岔标识（如 "4-1"）</param>
+        /// <param name="switchId">道岔标识（如 "4-J"）</param>
         /// <param name="evt">道岔动作事件（需含 Power 采样数据）</param>
         /// <returns>EventDiagnosis（Data 项目 POCO，可直接序列化存储）</returns>
         public static EventDiagnosis Run(IDiagnosisEngine engine, string switchId, SwitchEvent evt, string parsedDataDir = null)
@@ -58,11 +58,11 @@ namespace SwitchMonitor.Diagnosis
             // 1. 特征提取
             var features = FeatureExtractor.Extract(evt);
 
-            // 2. 规则评估
+            // 2. 规则评估（传递方向以选择对应基线）
             List<DiagnosisResult> results;
             try
             {
-                results = engine.Diagnose(switchId, features);
+                results = engine.Diagnose(switchId, features, evt.Direction);
             }
             catch (Exception ex)
             {
@@ -115,12 +115,28 @@ namespace SwitchMonitor.Diagnosis
                 {
                     FeaturesStore.Append(parsedDataDir, switchId,
                         evt.Timestamp, features.DurationSec, features.SpikePeak,
-                        features.UnlockMean, features.ConvMean, features.TailMean);
+                        features.UnlockMean, features.ConvMean, features.LockMean, features.TailMean,
+                        evt.Direction);
                 }
                 catch (Exception ex)
                 {
                     // features.json 写入失败不中断诊断
                     Logger.Warning("features.json 追加失败 switchId=" + switchId + ": " + ex.Message);
+                }
+            }
+
+            // 6b. D7: 追加电流特征到 current_features.json
+            if (!string.IsNullOrEmpty(parsedDataDir))
+            {
+                try
+                {
+                    var currentFeatures = CurrentFeatureExtractor.Extract(evt);
+                    CurrentFeaturesStore.Append(parsedDataDir, switchId, evt.Timestamp, currentFeatures);
+                }
+                catch (Exception ex)
+                {
+                    // current_features.json 写入失败不中断诊断
+                    Logger.Warning("current_features.json 追加失败 switchId=" + switchId + ": " + ex.Message);
                 }
             }
 
@@ -164,7 +180,7 @@ namespace SwitchMonitor.Diagnosis
                         EventDiagnosis result;
                         try
                         {
-                            result = Run(engine, switchId, evt);
+                            result = Run(engine, switchId, evt, indexManager.ParsedDataDir); // 方向已通过 evt.Direction 传入
                         }
                         catch (Exception ex)
                         {
@@ -231,8 +247,8 @@ namespace SwitchMonitor.Diagnosis
             sb.AppendLine();
 
             // Features 行
-            sb.AppendFormat("  Features: dur={0:F2}s spikePeak={1:F3} convMean={2:F3} tailMean={3:F3} stepRatio={4:F3}",
-                f.DurationSec, f.SpikePeak, f.ConvMean, f.TailMean, f.StepRatio);
+            sb.AppendFormat("  Features: dur={0:F2}s spikePeak={1:F3} convMean={2:F3} lockMean={3:F3} tailMean={4:F3} stepRatio={5:F3}",
+                f.DurationSec, f.SpikePeak, f.ConvMean, f.LockMean, f.TailMean, f.StepRatio);
             sb.AppendFormat(" unlockMean={0:F3} activeEnd={1} isFullWindow={2} isValid={3}",
                 f.UnlockMean, f.ActiveEnd, f.IsFullWindow, f.IsValid);
             sb.AppendLine();

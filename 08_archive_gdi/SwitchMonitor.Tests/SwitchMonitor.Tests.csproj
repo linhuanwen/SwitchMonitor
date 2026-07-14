@@ -26,9 +26,6 @@
     </Reference>
   </ItemGroup>
   <ItemGroup>
-    <Content Include="..\lib\sqlite3.dll" CopyToOutputDirectory="PreserveNewest" Link="sqlite3.dll" />
-  </ItemGroup>
-  <ItemGroup>
     <PackageReference Include="System.ValueTuple" Version="4.5.0" />
   </ItemGroup>
 </Project>

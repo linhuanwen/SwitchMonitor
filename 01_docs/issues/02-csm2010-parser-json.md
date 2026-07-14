@@ -19,7 +19,7 @@ Slice 1（项目脚手架 + 数据模型）
 参照已逆向的格式：
 - 8 字节 magic header "CSM2010"
 - 之后是连续的 event 记录块
-- 每条记录含 timestamp、phase bitmask（16777216=A相, 33554432=B相, 50332416=C相, 0=功率）、约 790 个 float 采样点
+- 每条记录含 timestamp、phase bitmask（由文件索引确定相别：byte3=文件索引+offset，offset 0=A相/1=B相/2=C相）、约 790 个 float 采样点
 
 ### 解析流程
 

@@ -16,18 +16,21 @@ namespace SwitchMonitor.Diagnosis
         /// </summary>
         /// <param name="allFeatures">该台道岔全部历史曲线特征</param>
         /// <param name="minSamples">最小正常样本数，默认 30</param>
+        /// <param name="direction">动作方向过滤（null = 不过滤，否则只取匹配方向的特征）</param>
         /// <returns>基线值；样本不足时返回 null</returns>
-        public static SwitchBaseline Build(List<CurveFeatures> allFeatures, int minSamples = 30)
+        public static SwitchBaseline Build(List<CurveFeatures> allFeatures, int minSamples = 30, string direction = null)
         {
             if (allFeatures == null || allFeatures.Count == 0)
                 return null;
 
-            // 步骤 1：过滤 — 排除 IsFullWindow、!IsValid、DurationSec < 2.4
+            // 步骤 1：过滤 — 排除 IsFullWindow、!IsValid、DurationSec < 2.4；可选用方向过滤
             var pool = new List<CurveFeatures>();
             foreach (var f in allFeatures)
             {
                 if (f.IsValid && !f.IsFullWindow && f.DurationSec >= 2.4)
                 {
+                    if (direction != null && f.Direction != direction)
+                        continue;
                     pool.Add(f);
                 }
             }
@@ -65,6 +68,7 @@ namespace SwitchMonitor.Diagnosis
             var normalSpikes = new List<double>(normal.Count);
             var normalUnlocks = new List<double>(normal.Count);
             var normalConvs = new List<double>(normal.Count);
+            var normalLocks = new List<double>(normal.Count);
             var normalTails = new List<double>(normal.Count);
 
             foreach (var f in normal)
@@ -73,6 +77,7 @@ namespace SwitchMonitor.Diagnosis
                 normalSpikes.Add(f.SpikePeak);
                 normalUnlocks.Add(f.UnlockMean);
                 normalConvs.Add(f.ConvMean);
+                normalLocks.Add(f.LockMean);
                 normalTails.Add(f.TailMean);
             }
 
@@ -80,8 +85,10 @@ namespace SwitchMonitor.Diagnosis
             baseline.RefSpikePeak = Math.Round(Median(normalSpikes), 3);
             baseline.RefUnlockMean = Math.Round(Median(normalUnlocks), 3);
             baseline.RefConvMean = Math.Round(Median(normalConvs), 3);
+            baseline.RefLockMean = Math.Round(Median(normalLocks), 3);
             baseline.RefTailMean = Math.Round(Median(normalTails), 3);
             baseline.SampleCount = normal.Count;
+            baseline.Direction = direction;
 
             return baseline;
         }

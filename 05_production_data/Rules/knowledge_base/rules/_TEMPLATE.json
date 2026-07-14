@@ -1,0 +1,54 @@
+{
+  "_schema": "M3候选规则模板 — 从文献知识库派生的诊断规则。经验证通过后晋升至M2 (thresholds.json)。",
+
+  "ruleId": "KB00X_RN",
+  "status": "draft",
+
+  "source": {
+    "kbEntryId": "KB00X",
+    "knowledgePointIds": ["KP1"],
+    "paperTitle": "论文标题",
+    "authors": ["作者"],
+    "year": 20XX,
+    "extractionDate": "2026-07-13",
+    "extractedBy": "林焕文",
+
+    "confidence": "medium",
+    "confidenceNote": "论文数据来自S700K/实验台，迁移到ZYJ7/现场的适用性待dryrun验证"
+  },
+
+  "rule": {
+    "enabled": false,
+    "level": "预警",
+    "displayName": "[文献] 规则显示名称",
+    "description": "规则的中文描述，包含判据逻辑和对应的物理含义。应引用源论文的关键发现。",
+    "type": "literature-derived",
+
+    "feature": "CurveFeatures中的字段名",
+    "operator": "gt | lt | range | ratio_gt | ratio_lt",
+    "threshold": 0.0,
+    "thresholdNote": "阈值来源：论文原始值 / 按采样率折算 / 统计估计",
+
+    "parameters": {}
+  },
+
+  "validation": {
+    "dryrunDate": null,
+    "dryrunTotalEvents": 0,
+    "dryrunTriggered": 0,
+    "dryrunTriggerRate": 0.0,
+    "dryrunPassed": false,
+    "manualReviewDate": null,
+    "manualReviewResult": null,
+    "manualReviewNote": "",
+    "promotedToM2": false,
+    "promotedRuleId": null,
+    "promotedDate": null
+  },
+
+  "rollback": {
+    "rollbackDate": null,
+    "rollbackReason": "",
+    "rollbackNote": ""
+  }
+}

@@ -56,7 +56,7 @@ namespace SwitchMonitor.Tests
         static void Test_FeaturesJson_ColumnarFormat()
         {
             var store = new FeaturesStore();
-            store.Columns = new List<string> { "timestamp", "durationSec", "spikePeak", "unlockMean", "convMean", "tailMean" };
+            store.Columns = new List<string> { "timestamp", "durationSec", "spikePeak", "unlockMean", "convMean", "lockMean", "tailMean" };
             store.Rows = new List<List<double>>();
             store.Rows.Add(new List<double> { 1770922311, 11.76, 3.392, 0.309, 0.308, 0.208 });
             store.Rows.Add(new List<double> { 1770771323, 8.56, 3.294, 0.317, 0.254, 0.202 });
@@ -73,13 +73,13 @@ namespace SwitchMonitor.Tests
 
         static void Test_FeaturesJson_Deserialize()
         {
-            string json = @"{""columns"":[""timestamp"",""durationSec"",""spikePeak"",""unlockMean"",""convMean"",""tailMean""],""rows"":[[1770922311,11.76,3.392,0.309,0.308,0.208],[1770771323,8.56,3.294,0.317,0.254,0.202]]}";
+            string json = @"{""columns"":[""timestamp"",""durationSec"",""spikePeak"",""unlockMean"",""convMean"",""lockMean"",""tailMean""],""rows"":[[1770922311,11.76,3.392,0.309,0.308,0.308,0.208],[1770771323,8.56,3.294,0.317,0.254,0.239,0.202]]}";
 
             var serializer = new JavaScriptSerializer();
             var store = serializer.Deserialize<FeaturesStore>(json);
 
             TestRunner.AssertNotNull(store, "反序列化非null");
-            TestRunner.AssertEqual(6, store.Columns.Count, "6 列");
+            TestRunner.AssertEqual(7, store.Columns.Count, "7 列");
             TestRunner.AssertEqual(2, store.Rows.Count, "2 行");
             TestRunner.AssertEqual("convMean", store.Columns[4], "第5列=convMean");
             TestRunner.AssertEqual(0.308, store.Rows[0][4], 0.001, "第一行 convMean=0.308");
@@ -90,7 +90,7 @@ namespace SwitchMonitor.Tests
             string tempDir = TestRunner.TempDir();
             try
             {
-                string switchId = "1-1";
+                string switchId = "1-J";
                 var writer = new FeaturesStore();
                 writer.Columns = new List<string> { "timestamp", "durationSec", "spikePeak", "convMean", "tailMean" };
 
@@ -98,7 +98,7 @@ namespace SwitchMonitor.Tests
                 writer.Rows.Add(new List<double> { 200, 11.80, 3.400, 0.310, 0.210 });
                 FeaturesStore.Save(tempDir, switchId, writer);
 
-                FeaturesStore.Append(tempDir, switchId, 300, 11.72, 3.235, 0.307, 0.301, 0.213);
+                FeaturesStore.Append(tempDir, switchId, 300, 11.72, 3.235, 0.307, 0.301, 0.200, 0.213);
 
                 string filePath = Path.Combine(tempDir, switchId, "features.json");
                 var loaded = FeaturesStore.Load(filePath);
@@ -136,16 +136,16 @@ namespace SwitchMonitor.Tests
                         SampleCount = 298, SampleInterval = 0.04, Duration = 11.80
                     }
                 };
-                im.SaveDayData("1-1", "2026-02-13", events);
+                im.SaveDayData("1-J", "2026-02-13", events);
 
-                int backfilled = FeaturesStore.BackfillWithDir(im, "1-1", parsedDir);
+                int backfilled = FeaturesStore.BackfillWithDir(im, "1-J", parsedDir);
                 TestRunner.AssertEqual(2, backfilled, "回填行数=2");
 
-                string featuresPath = Path.Combine(parsedDir, "1-1", "features.json");
+                string featuresPath = Path.Combine(parsedDir, "1-J", "features.json");
                 TestRunner.AssertFileExists(featuresPath, "features.json 已生成");
 
                 var loaded = FeaturesStore.Load(featuresPath);
-                TestRunner.AssertEqual(6, loaded.Columns.Count, "6 列");
+                TestRunner.AssertEqual(7, loaded.Columns.Count, "7 列");
                 TestRunner.AssertEqual(2, loaded.Rows.Count, "2 行");
             }
             finally
@@ -174,13 +174,13 @@ namespace SwitchMonitor.Tests
                 {
                     long ts = baseTs + day * 86400 + e * 300;
                     double noise = (e - 2) * 0.002;
-                    rows.Add(new List<double> { (double)ts, 11.76, 3.392, 0.309, dayConv + noise, 0.208 });
+                    rows.Add(new List<double> { (double)ts, 11.76, 3.392, 0.309, dayConv + noise, 0.200, 0.208 });
                 }
             }
 
             var store = new FeaturesStore
             {
-                Columns = new List<string> { "timestamp", "durationSec", "spikePeak", "unlockMean", "convMean", "tailMean" },
+                Columns = new List<string> { "timestamp", "durationSec", "spikePeak", "unlockMean", "convMean", "lockMean", "tailMean" },
                 Rows = rows
             };
 
@@ -206,13 +206,13 @@ namespace SwitchMonitor.Tests
                 {
                     long ts = baseTs + day * 86400 + e * 300;
                     double noise = (rng.NextDouble() - 0.5) * 0.02;
-                    rows.Add(new List<double> { (double)ts, 11.76, 3.392, 0.309, baseConv + noise, 0.208 });
+                    rows.Add(new List<double> { (double)ts, 11.76, 3.392, 0.309, baseConv + noise, 0.200, 0.208 });
                 }
             }
 
             var store = new FeaturesStore
             {
-                Columns = new List<string> { "timestamp", "durationSec", "spikePeak", "unlockMean", "convMean", "tailMean" },
+                Columns = new List<string> { "timestamp", "durationSec", "spikePeak", "unlockMean", "convMean", "lockMean", "tailMean" },
                 Rows = rows
             };
 
@@ -231,13 +231,13 @@ namespace SwitchMonitor.Tests
                 {
                     long ts = baseTs + day * 86400 + e * 300;
                     double conv = 0.300 + day * 0.015;
-                    rows.Add(new List<double> { (double)ts, 11.76, 3.392, 0.309, conv, 0.208 });
+                    rows.Add(new List<double> { (double)ts, 11.76, 3.392, 0.309, conv, 0.200, 0.208 });
                 }
             }
 
             var store = new FeaturesStore
             {
-                Columns = new List<string> { "timestamp", "durationSec", "spikePeak", "unlockMean", "convMean", "tailMean" },
+                Columns = new List<string> { "timestamp", "durationSec", "spikePeak", "unlockMean", "convMean", "lockMean", "tailMean" },
                 Rows = rows
             };
 
@@ -281,7 +281,7 @@ namespace SwitchMonitor.Tests
             var refCurve = ReferenceCurveBuilder.Build(normalCurves, sampleInterval: 0.04);
 
             TestRunner.AssertNotNull(refCurve, "参考曲线非null");
-            TestRunner.AssertEqual("1-1", refCurve.SwitchId, "switchId 传递正确");
+            TestRunner.AssertEqual("1-J", refCurve.SwitchId, "switchId 传递正确");
             TestRunner.AssertEqual(0.04, refCurve.SampleInterval, 0.001, "sampleInterval=0.04");
             TestRunner.AssertEqual(6, refCurve.AlignIndex, "alignIndex=6（spikeIndex 中位数）");
             TestRunner.AssertTrue(refCurve.Values.Count >= 250 && refCurve.Values.Count <= 310,
@@ -329,7 +329,7 @@ namespace SwitchMonitor.Tests
 
                 var curve = new ReferenceCurve
                 {
-                    SwitchId = "1-1",
+                    SwitchId = "1-J",
                     SampleInterval = 0.04,
                     AlignIndex = 6,
                     Values = new List<double> { 0.0, 0.14, 0.24, 3.235, 0.350, 0.307, 0.301, 0.300, 0.299 },
@@ -343,7 +343,7 @@ namespace SwitchMonitor.Tests
 
                 var loaded = ReferenceCurveStore.Load(expectedPath);
                 TestRunner.AssertNotNull(loaded, "加载非null");
-                TestRunner.AssertEqual("1-1", loaded.SwitchId, "switchId 一致");
+                TestRunner.AssertEqual("1-J", loaded.SwitchId, "switchId 一致");
                 TestRunner.AssertEqual(6, loaded.AlignIndex, "alignIndex 一致");
                 TestRunner.AssertEqual(9, loaded.Values.Count, "values 长度一致");
                 TestRunner.AssertEqual(3.235, loaded.Values[3], 0.001, "value[3]=3.235");
@@ -526,7 +526,7 @@ namespace SwitchMonitor.Tests
         {
             var refCurve = new ReferenceCurve
             {
-                SwitchId = "1-1",
+                SwitchId = "1-J",
                 SampleInterval = 0.04,
                 AlignIndex = 6,
                 Values = new List<double> { 0.0, 0.14, 0.24, 3.235, 0.350, 0.307, 0.301, 0.300, 0.299 },
@@ -546,7 +546,7 @@ namespace SwitchMonitor.Tests
         {
             var refCurve = new ReferenceCurve
             {
-                SwitchId = "1-1",
+                SwitchId = "1-J",
                 SampleInterval = 0.04,
                 AlignIndex = 6,
                 Values = new List<double> { 0.0, 0.14, 3.235, 0.301, 0.300 }
@@ -555,7 +555,7 @@ namespace SwitchMonitor.Tests
             var serializer = new JavaScriptSerializer();
             var chartData = new
             {
-                switchId = "1-1",
+                switchId = "1-J",
                 currentEvent = new { timestamp = 1770922311L, direction = "定位↔反位", duration = 11.76 },
                 refCurve = refCurve
             };

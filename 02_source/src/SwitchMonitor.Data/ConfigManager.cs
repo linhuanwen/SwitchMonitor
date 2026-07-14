@@ -48,6 +48,8 @@ namespace SwitchMonitor.Data
                 string json = File.ReadAllText(configPath, Encoding.UTF8);
                 var serializer = new JavaScriptSerializer();
                 _instance = serializer.Deserialize<AppConfig>(json);
+                // 加载 digit.ini 配置填充 SwitchGroup 点号
+                LoadDigitPointConfig(_instance);
                 return Tuple.Create(_instance, false);
             }
             catch (Exception ex)
@@ -55,6 +57,54 @@ namespace SwitchMonitor.Data
                 System.Diagnostics.Debug.WriteLine("配置文件解析失败: " + ex.Message);
                 _instance = CreateDefaultConfig();
                 return Tuple.Create(_instance, true);
+            }
+        }
+
+        /// <summary>
+        /// 从 digit.ini / switch_digit_config.json 加载 DB/FB/1DQJ 点号，
+        /// 填充到各 SwitchGroup 的 DbPointId/FbPointId/DqjPointId 字段。
+        /// 加载失败时静默回退，各字段保持 null。
+        /// </summary>
+        private static void LoadDigitPointConfig(AppConfig config)
+        {
+            DigitSwitchRegistry registry = null;
+
+            // 1. 优先：从 digit.ini 直接解析（如果路径已配置且文件存在）
+            if (!string.IsNullOrEmpty(config.DigitIniPath) && File.Exists(config.DigitIniPath))
+            {
+                try
+                {
+                    registry = DigitSwitchRegistry.LoadFromIni(config.DigitIniPath);
+                }
+                catch { }
+            }
+
+            // 2. 回退：从同目录下的 switch_digit_config.json 读取
+            if (registry == null && !string.IsNullOrEmpty(config.DigitIniPath))
+            {
+                try
+                {
+                    string dir = Path.GetDirectoryName(config.DigitIniPath);
+                    string jsonPath = Path.Combine(dir ?? ".", "switch_digit_config.json");
+                    if (File.Exists(jsonPath))
+                        registry = DigitSwitchRegistry.Load(jsonPath);
+                }
+                catch { }
+            }
+
+            if (registry == null)
+                return;
+
+            // 填充到各 SwitchGroup
+            foreach (var group in config.SwitchGroups)
+            {
+                DigitPointIds ptIds;
+                if (registry.TryGetConfig(group.Id, out ptIds))
+                {
+                    group.DbPointId = ptIds.db_point_id > 0 ? ptIds.db_point_id : (int?)null;
+                    group.FbPointId = ptIds.fb_point_id > 0 ? ptIds.fb_point_id : (int?)null;
+                    group.DqjPointId = ptIds.dqj_point_id > 0 ? ptIds.dqj_point_id : (int?)null;
+                }
             }
         }
 
@@ -85,13 +135,13 @@ namespace SwitchMonitor.Data
             {
                 SwitchGroups = new System.Collections.Generic.List<SwitchGroup>
                 {
-                    new SwitchGroup { Id = "1-1", Label = "1-1", DataFileIndex = 0 },
+                    new SwitchGroup { Id = "1-J", Label = "1-J", DataFileIndex = 0 },
                     new SwitchGroup { Id = "1-X", Label = "1-X", DataFileIndex = 4 },
-                    new SwitchGroup { Id = "3-1", Label = "3-1", DataFileIndex = 8 },
+                    new SwitchGroup { Id = "3-J", Label = "3-J", DataFileIndex = 8 },
                     new SwitchGroup { Id = "3-X", Label = "3-X", DataFileIndex = 12 },
-                    new SwitchGroup { Id = "2-1", Label = "2-1", DataFileIndex = 16 },
+                    new SwitchGroup { Id = "2-J", Label = "2-J", DataFileIndex = 16 },
                     new SwitchGroup { Id = "2-X", Label = "2-X", DataFileIndex = 20 },
-                    new SwitchGroup { Id = "4-1", Label = "4-1", DataFileIndex = 24 },
+                    new SwitchGroup { Id = "4-J", Label = "4-J", DataFileIndex = 24 },
                     new SwitchGroup { Id = "4-X", Label = "4-X", DataFileIndex = 28 }
                 },
                 DataSourceDir = @".\03_raw_data\sanshuibei",

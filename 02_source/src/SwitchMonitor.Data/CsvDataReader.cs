@@ -26,7 +26,8 @@ namespace SwitchMonitor.Data
     ///
     /// 相位编码规则（每个转辙机组使用 2 个配对文件 N 和 N+3）：
     /// - 第一个文件 (索引 N): 相位高字节 = N + offset
-    ///   offset 0=C相电流, 1=A相电流, 2=B相电流
+    ///   offset 0=A相电流, 1=B相电流, 2=C相电流 (依据 DC.ini 通道定义)
+    ///   (flag 16777216/0x01000000 → byte3=1 → B相, 33554432/0x02000000 → byte3=2 → C相)
     /// - 第二个文件 (索引 N+3): 包含功率
     /// </summary>
     internal class CsvDataReader
@@ -36,7 +37,7 @@ namespace SwitchMonitor.Data
         /// </summary>
         /// <param name="filePath">CSV 文件路径</param>
         /// <param name="fileIndex">文件索引号 (0-31)</param>
-        /// <param name="isSecondFile">是否为配对中的第二个文件（包含C相）</param>
+        /// <param name="isSecondFile">是否为配对中的第二个文件（包含功率）</param>
         public List<CsvRow> ReadFile(string filePath, int fileIndex, bool isSecondFile)
         {
             var rows = new List<CsvRow>(1000);
@@ -73,9 +74,12 @@ namespace SwitchMonitor.Data
 
             int highByte = (phase >> 24) & 0xFF;
             int offset = highByte - fileIndex;
-            // offset 0=C相电流, 1=A相电流, 2=B相电流
-            if (offset == 0) return 3; // C相电流
-            return offset; // 1=A相, 2=B相
+            // offset 0=A相电流, 1=B相电流, 2=C相电流 (依据 DC.ini: 通道0=A, 通道1=B, 通道2=C)
+            // (flag 16777216/0x01000000 → byte3=1 → offset=1 → B相)
+            // PhaseType: 1=A相, 2=B相, 3=C相
+            if (offset >= 0 && offset <= 2)
+                return offset + 1; // 0→1(A), 1→2(B), 2→3(C)
+            return offset; // 异常值原样返回
         }
 
         /// <summary>

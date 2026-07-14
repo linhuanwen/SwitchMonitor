@@ -140,9 +140,9 @@ namespace SwitchMonitor.Tests
             Console.WriteLine("--- P3: Phase 标签映射 ---");
             try
             {
-                Assert(CsvCurveParser.GetPhaseLabel(16777216) == "A", "16777216 → A");
-                Assert(CsvCurveParser.GetPhaseLabel(33554432) == "B", "33554432 → B");
-                Assert(CsvCurveParser.GetPhaseLabel(50332416) == "C", "50332416 → C");
+                Assert(CsvCurveParser.GetPhaseLabel(16777216) == "B", "16777216 → B");
+                Assert(CsvCurveParser.GetPhaseLabel(33554432) == "C", "33554432 → C");
+                Assert(CsvCurveParser.GetPhaseLabel(50332416) == "A", "50332416 → A");
                 Assert(CsvCurveParser.GetPhaseLabel(0) == "P", "0 → P(功率)");
 
                 // 对未知 phase 值的降级处理

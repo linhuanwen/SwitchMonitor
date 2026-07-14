@@ -51,6 +51,15 @@
         "warningRatio": 1.3,
         "alarmRatio": 1.5
       }
+    },
+    {
+      "name": "lock_mean",
+      "displayName": "锁闭段均值异常",
+      "enabled": true,
+      "type": "morphology",
+      "parameters": {
+        "deviationRatio": 0.3
+      }
     }
   ]
 }

@@ -44,7 +44,7 @@ namespace SwitchMonitor.Data
             CurrentB = new List<double[]>();
             CurrentC = new List<double[]>();
             Power = new List<double[]>();
-            Direction = "定位↔反位";
+            Direction = "未知";
         }
     }
 
@@ -53,7 +53,7 @@ namespace SwitchMonitor.Data
     /// </summary>
     public class DayIndex
     {
-        /// <summary>转辙机标识（如 "1-1"）</summary>
+        /// <summary>转辙机标识（如 "1-J"）</summary>
         public string SwitchId { get; set; }
 
         /// <summary>日期 "yyyy-MM-dd"</summary>
@@ -73,7 +73,7 @@ namespace SwitchMonitor.Data
     /// </summary>
     public class SwitchGroup
     {
-        /// <summary>转辙机标识（如 "1-1"）</summary>
+        /// <summary>转辙机标识（如 "1-J"）</summary>
         public string Id { get; set; }
 
         /// <summary>显示标签</summary>
@@ -81,6 +81,17 @@ namespace SwitchMonitor.Data
 
         /// <summary>对应的 dataFileIndex，映射到 SwitchCurve 文件编号</summary>
         public int DataFileIndex { get; set; }
+
+        // ── digit 点号配置（从 digit.ini 解析，null=未配置） ──
+
+        /// <summary>DB 定位表示继电器点号（可为 null）</summary>
+        public int? DbPointId { get; set; }
+
+        /// <summary>FB 反位表示继电器点号（可为 null）</summary>
+        public int? FbPointId { get; set; }
+
+        /// <summary>1DQJ 启动继电器点号（可为 null）</summary>
+        public int? DqjPointId { get; set; }
     }
 
     /// <summary>
@@ -220,11 +231,19 @@ namespace SwitchMonitor.Data
         public UiConfig Ui { get; set; }
         public DiagnosisConfig Diagnosis { get; set; }
 
+        /// <summary>digit.ini 配置文件路径（可为空，为空时不解析 digit 配置）</summary>
+        public string DigitIniPath { get; set; }
+
+        /// <summary>Digit(*).dat 开关量数据目录（可为空，为空时不读取开关量）</summary>
+        public string DigitDataDir { get; set; }
+
         public AppConfig()
         {
             SwitchGroups = new List<SwitchGroup>();
             ScanInterval = 5;
             Diagnosis = new DiagnosisConfig();
+            DigitIniPath = "";
+            DigitDataDir = "";
         }
     }
 }

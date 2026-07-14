@@ -20,8 +20,24 @@ namespace SwitchMonitor.Diagnosis
         /// <summary>默认列定义</summary>
         public static readonly List<string> DefaultColumns = new List<string>
         {
-            "timestamp", "durationSec", "spikePeak", "unlockMean", "convMean", "tailMean"
+            "timestamp", "durationSec", "spikePeak", "unlockMean", "convMean", "lockMean", "tailMean", "direction"
         };
+
+        /// <summary>方向编码：定位→反位 = 1.0, 反位→定位 = 2.0, 未知 = 0.0</summary>
+        public static double EncodeDirection(string direction)
+        {
+            if (direction == BaselineStore.DirNormalToReverse) return 1.0;
+            if (direction == BaselineStore.DirReverseToNormal) return 2.0;
+            return 0.0;
+        }
+
+        /// <summary>方向解码</summary>
+        public static string DecodeDirection(double code)
+        {
+            if (Math.Abs(code - 1.0) < 0.01) return BaselineStore.DirNormalToReverse;
+            if (Math.Abs(code - 2.0) < 0.01) return BaselineStore.DirReverseToNormal;
+            return null;
+        }
 
         /// <summary>
         /// 从 CurveFeatures 创建一行（按 DefaultColumns 顺序）
@@ -35,7 +51,9 @@ namespace SwitchMonitor.Diagnosis
                 f.SpikePeak,
                 f.UnlockMean,
                 f.ConvMean,
-                f.TailMean
+                f.LockMean,
+                f.TailMean,
+                EncodeDirection(f.Direction)
             };
         }
 
@@ -81,7 +99,8 @@ namespace SwitchMonitor.Diagnosis
         /// </summary>
         public static void Append(string parsedDir, string switchId,
             long timestamp, double durationSec, double spikePeak,
-            double unlockMean, double convMean, double tailMean)
+            double unlockMean, double convMean, double lockMean, double tailMean,
+            string direction = null)
         {
             string dir = Path.Combine(parsedDir, switchId);
             if (!Directory.Exists(dir))
@@ -113,7 +132,9 @@ namespace SwitchMonitor.Diagnosis
                 SpikePeak = spikePeak,
                 UnlockMean = unlockMean,
                 ConvMean = convMean,
-                TailMean = tailMean
+                LockMean = lockMean,
+                TailMean = tailMean,
+                Direction = direction
             }));
 
             string json = serializer.Serialize(store);

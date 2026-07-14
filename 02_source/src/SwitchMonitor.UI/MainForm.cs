@@ -114,6 +114,9 @@ namespace SwitchMonitor.UI
             var diagParamItem = new ToolStripMenuItem("诊断参数设置(&P)...", null, OnDiagParamClicked);
             toolMenu.DropDownItems.Add(diagParamItem);
 
+            var baselineItem = new ToolStripMenuItem("设定基准曲线(&B)...", null, OnBaselineSettingClicked);
+            toolMenu.DropDownItems.Add(baselineItem);
+
             var rerunDiagItem = new ToolStripMenuItem("重新诊断当前数据(&D)", null, OnRerunDiagClicked);
             toolMenu.DropDownItems.Add(rerunDiagItem);
 
@@ -273,6 +276,291 @@ namespace SwitchMonitor.UI
                 MessageBox.Show("打开诊断参数设置失败: " + ex.Message,
                     "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
+        }
+
+        /// <summary>
+        /// 工具 → 设定基准曲线 → 弹出方向提示并触发基线重建
+        /// </summary>
+        private void OnBaselineSettingClicked(object sender, EventArgs e)
+        {
+            string message =
+                "基准曲线按动作方向分为两类：\n\n" +
+                "  ● 定位→反位：道岔从定位扳向反位的基准曲线\n" +
+                "  ● 反位→定位：道岔从反位扳向定位的基准曲线\n\n" +
+                "系统会根据每次动作的方向自动选用对应的基准曲线进行诊断。\n\n" +
+                "点击「确定」将使用当前已导入数据重建全量基准曲线（含两个方向）。\n" +
+                "此操作可能需要数分钟，完成后将自动刷新当前视图。";
+
+            var result = MessageBox.Show(message, "设定基准曲线",
+                MessageBoxButtons.OKCancel, MessageBoxIcon.Information);
+
+            if (result != DialogResult.OK)
+                return;
+
+            if (_importWorker.IsBusy)
+            {
+                MessageBox.Show("导入任务正在进行中，请等待完成后再设定基准曲线。", "提示",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            statusLabel.Text = "正在重建基准曲线（分方向）...";
+            var worker = new BackgroundWorker();
+            worker.WorkerReportsProgress = true;
+            worker.WorkerSupportsCancellation = true;
+
+            worker.DoWork += (s, args) =>
+            {
+                try
+                {
+                    string rulesDir = _config.Diagnosis.RulesDir;
+                    if (!Path.IsPathRooted(rulesDir))
+                        rulesDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, rulesDir);
+
+                    var resultInfo = BuildAllBaselines(rulesDir);
+                    args.Result = resultInfo;
+                }
+                catch (Exception ex)
+                {
+                    args.Result = "失败: " + ex.Message;
+                }
+            };
+
+            worker.RunWorkerCompleted += (s, args) =>
+            {
+                string resultInfo = args.Result as string;
+                if (resultInfo != null && resultInfo.StartsWith("失败"))
+                {
+                    statusLabel.Text = "基准曲线重建失败";
+                    MessageBox.Show("基准曲线重建失败:\n" + resultInfo,
+                        "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+                else
+                {
+                    statusLabel.Text = "基准曲线重建完成";
+                    MessageBox.Show("基准曲线重建完成！\n\n" + resultInfo,
+                        "完成", MessageBoxButtons.OK, MessageBoxIcon.Information);
+
+                    // 刷新当前视图以加载新的分方向基线
+                    if (!string.IsNullOrEmpty(_selectedSwitchId) &&
+                        !string.IsNullOrEmpty(_selectedDate) &&
+                        _selectedTimestamp > 0)
+                    {
+                        LoadCurveData();
+                    }
+                }
+            };
+
+            worker.RunWorkerAsync();
+        }
+
+        /// <summary>
+        /// 重建全量基线（分方向）：遍历所有 switchId × {定位→反位, 反位→定位}
+        /// 读取 features.json 和 current_features.json，按方向过滤后构建基线，
+        /// 写入 baselines.json 和 current_baselines.json。
+        /// </summary>
+        /// <returns>结果摘要字符串</returns>
+        private string BuildAllBaselines(string rulesDir)
+        {
+            string parsedDataDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, _config.ParsedDataDir);
+            string[] directions = { BaselineStore.DirNormalToReverse, BaselineStore.DirReverseToNormal };
+
+            // ── 功率基线 ──
+            var powerBaselines = new BaselineStore();
+            int powerOk = 0, powerSkipped = 0;
+            foreach (var sid in _indexManager.GetAllSwitchIds())
+            {
+                // 读取该道岔的全部 features.json 数据
+                List<CurveFeatures> allFeats = LoadAllPowerFeatures(sid, parsedDataDir);
+                if (allFeats.Count == 0)
+                    continue;
+
+                foreach (var dir in directions)
+                {
+                    var bl = BaselineBuilder.Build(allFeats, 30, dir);
+                    if (bl != null)
+                    {
+                        powerBaselines.Switches[BaselineStore.MakeKey(sid, dir)] = bl;
+                        powerOk++;
+                    }
+                    else
+                    {
+                        powerSkipped++;
+                        Logger.Info(string.Format("功率基线 {0}|{1} 样本不足，跳过", sid, dir));
+                    }
+                }
+            }
+            powerBaselines.ComputedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+            string powerPath = Path.Combine(rulesDir, "baselines.json");
+            powerBaselines.Save(powerPath);
+
+            // ── 电流基线 ──
+            var currentBaselines = new CurrentBaselineStore();
+            int currentOk = 0, currentSkipped = 0;
+            foreach (var sid in _indexManager.GetAllSwitchIds())
+            {
+                List<CurrentFeatures> allCurrentFeats = LoadAllCurrentFeatures(sid, parsedDataDir);
+                if (allCurrentFeats.Count == 0)
+                    continue;
+
+                foreach (var dir in directions)
+                {
+                    var cbl = CurrentBaselineBuilder.Build(allCurrentFeats, 30, dir);
+                    if (cbl != null)
+                    {
+                        currentBaselines.Switches[CurrentBaselineStore.MakeKey(sid, dir)] = cbl;
+                        currentOk++;
+                    }
+                    else
+                    {
+                        currentSkipped++;
+                        Logger.Info(string.Format("电流基线 {0}|{1} 样本不足，跳过", sid, dir));
+                    }
+                }
+            }
+            currentBaselines.ComputedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+            string currentPath = Path.Combine(rulesDir, "current_baselines.json");
+            currentBaselines.Save(currentPath);
+
+            string summary = string.Format(
+                "功率基线: {0} 条成功, {1} 条样本不足\n" +
+                "电流基线: {2} 条成功, {3} 条样本不足\n\n" +
+                "已保存到:\n{4}\n{5}",
+                powerOk, powerSkipped, currentOk, currentSkipped,
+                powerPath, currentPath);
+
+            Logger.Info("基准曲线重建完成: " + summary.Replace("\n", " | "));
+            return summary;
+        }
+
+        /// <summary>
+        /// 从 parsed_data 读取某道岔的全部功率特征（合并各日期的 features.json）
+        /// </summary>
+        private static List<CurveFeatures> LoadAllPowerFeatures(string switchId, string parsedDataDir)
+        {
+            var result = new List<CurveFeatures>();
+            try
+            {
+                string featuresPath = Path.Combine(parsedDataDir, switchId, "features.json");
+                if (File.Exists(featuresPath))
+                {
+                    var store = FeaturesStore.Load(featuresPath);
+                    if (store != null && store.Rows != null && store.Columns != null)
+                    {
+                        int durIdx = store.ColumnIndex("durationSec");
+                        int spikeIdx = store.ColumnIndex("spikePeak");
+                        int unlockIdx = store.ColumnIndex("unlockMean");
+                        int convIdx = store.ColumnIndex("convMean");
+                        int lockIdx = store.ColumnIndex("lockMean");
+                        int tailIdx = store.ColumnIndex("tailMean");
+                        int dirIdx = store.ColumnIndex("direction");
+
+                        foreach (var row in store.Rows)
+                        {
+                            if (row == null || row.Count == 0) continue;
+                            var f = new CurveFeatures
+                            {
+                                DurationSec = durIdx >= 0 && durIdx < row.Count ? row[durIdx] : 0,
+                                SpikePeak = spikeIdx >= 0 && spikeIdx < row.Count ? row[spikeIdx] : 0,
+                                UnlockMean = unlockIdx >= 0 && unlockIdx < row.Count ? row[unlockIdx] : 0,
+                                ConvMean = convIdx >= 0 && convIdx < row.Count ? row[convIdx] : 0,
+                                LockMean = lockIdx >= 0 && lockIdx < row.Count ? row[lockIdx] : 0,
+                                TailMean = tailIdx >= 0 && tailIdx < row.Count ? row[tailIdx] : 0,
+                                Direction = dirIdx >= 0 && dirIdx < row.Count
+                                    ? FeaturesStore.DecodeDirection(row[dirIdx]) : null,
+                                IsValid = true,
+                                IsFullWindow = false // features.json 不存此字段，默认 false
+                            };
+                            result.Add(f);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning("LoadAllPowerFeatures 失败 switchId=" + switchId + ": " + ex.Message);
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// 从 parsed_data 读取某道岔的全部电流特征（合并各日期的 current_features.json）
+        /// </summary>
+        private static List<CurrentFeatures> LoadAllCurrentFeatures(string switchId, string parsedDataDir)
+        {
+            var result = new List<CurrentFeatures>();
+            try
+            {
+                string featuresPath = Path.Combine(parsedDataDir, switchId, "current_features.json");
+                if (File.Exists(featuresPath))
+                {
+                    var store = CurrentFeaturesStore.Load(featuresPath);
+                    if (store != null && store.Rows != null && store.Columns != null)
+                    {
+                        int durIdx = store.ColumnIndex("durationSec");
+                        int dirIdx = store.ColumnIndex("direction");
+                        int spikeIdxA = store.ColumnIndex("spikeIndexA");
+                        int spikePeakA = store.ColumnIndex("spikePeakA");
+                        int unlockA = store.ColumnIndex("unlockMeanA");
+                        int convA = store.ColumnIndex("convMeanA");
+                        int lockA = store.ColumnIndex("lockMeanA");
+                        int tailA = store.ColumnIndex("tailMeanA");
+                        int spikePeakB = store.ColumnIndex("spikePeakB");
+                        int spikeIdxB = store.ColumnIndex("spikeIndexB");
+                        int unlockB = store.ColumnIndex("unlockMeanB");
+                        int convB = store.ColumnIndex("convMeanB");
+                        int lockB = store.ColumnIndex("lockMeanB");
+                        int tailB = store.ColumnIndex("tailMeanB");
+                        int spikePeakC = store.ColumnIndex("spikePeakC");
+                        int spikeIdxC = store.ColumnIndex("spikeIndexC");
+                        int unlockC = store.ColumnIndex("unlockMeanC");
+                        int convC = store.ColumnIndex("convMeanC");
+                        int lockC = store.ColumnIndex("lockMeanC");
+                        int tailC = store.ColumnIndex("tailMeanC");
+                        int maxUnbIdx = store.ColumnIndex("maxUnbalanceRatio");
+                        int isValidIdx = store.ColumnIndex("isValid");
+                        int isFullIdx = store.ColumnIndex("isFullWindow");
+
+                        foreach (var row in store.Rows)
+                        {
+                            if (row == null || row.Count == 0) continue;
+                            var f = new CurrentFeatures
+                            {
+                                DurationSec = durIdx >= 0 && durIdx < row.Count ? row[durIdx] : 0,
+                                Direction = dirIdx >= 0 && dirIdx < row.Count
+                                    ? FeaturesStore.DecodeDirection(row[dirIdx]) : null,
+                                SpikeIndexA = spikeIdxA >= 0 && spikeIdxA < row.Count ? (int)Math.Round(row[spikeIdxA]) : 0,
+                                SpikePeakA = spikePeakA >= 0 && spikePeakA < row.Count ? row[spikePeakA] : 0,
+                                UnlockMeanA = unlockA >= 0 && unlockA < row.Count ? row[unlockA] : 0,
+                                ConvMeanA = convA >= 0 && convA < row.Count ? row[convA] : 0,
+                                LockMeanA = lockA >= 0 && lockA < row.Count ? row[lockA] : 0,
+                                TailMeanA = tailA >= 0 && tailA < row.Count ? row[tailA] : 0,
+                                SpikePeakB = spikePeakB >= 0 && spikePeakB < row.Count ? row[spikePeakB] : 0,
+                                SpikeIndexB = spikeIdxB >= 0 && spikeIdxB < row.Count ? (int)Math.Round(row[spikeIdxB]) : 0,
+                                UnlockMeanB = unlockB >= 0 && unlockB < row.Count ? row[unlockB] : 0,
+                                ConvMeanB = convB >= 0 && convB < row.Count ? row[convB] : 0,
+                                LockMeanB = lockB >= 0 && lockB < row.Count ? row[lockB] : 0,
+                                TailMeanB = tailB >= 0 && tailB < row.Count ? row[tailB] : 0,
+                                SpikePeakC = spikePeakC >= 0 && spikePeakC < row.Count ? row[spikePeakC] : 0,
+                                SpikeIndexC = spikeIdxC >= 0 && spikeIdxC < row.Count ? (int)Math.Round(row[spikeIdxC]) : 0,
+                                UnlockMeanC = unlockC >= 0 && unlockC < row.Count ? row[unlockC] : 0,
+                                ConvMeanC = convC >= 0 && convC < row.Count ? row[convC] : 0,
+                                LockMeanC = lockC >= 0 && lockC < row.Count ? row[lockC] : 0,
+                                TailMeanC = tailC >= 0 && tailC < row.Count ? row[tailC] : 0,
+                                MaxUnbalanceRatio = maxUnbIdx >= 0 && maxUnbIdx < row.Count ? row[maxUnbIdx] : 0,
+                                IsValid = isValidIdx >= 0 && isValidIdx < row.Count ? row[isValidIdx] > 0.5 : true,
+                                IsFullWindow = isFullIdx >= 0 && isFullIdx < row.Count ? row[isFullIdx] > 0.5 : false,
+                            };
+                            result.Add(f);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning("LoadAllCurrentFeatures 失败 switchId=" + switchId + ": " + ex.Message);
+            }
+            return result;
         }
 
         /// <summary>
@@ -820,7 +1108,7 @@ namespace SwitchMonitor.UI
                 refCurve = null;
             }
 
-            // D7: 加载该道岔的诊断基线（用于图表叠加显示）
+            // D7: 加载该道岔的诊断基线（用于图表叠加显示），按方向查找
             try
             {
                 string baselinePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
@@ -829,7 +1117,14 @@ namespace SwitchMonitor.UI
                 {
                     var store = BaselineStore.Load(baselinePath);
                     SwitchBaseline bl;
-                    if (store.Switches != null && store.Switches.TryGetValue(_selectedSwitchId, out bl))
+                    // 优先按方向精确查找，降级到无方向旧格式
+                    string currentDir = currentEvent != null ? currentEvent.Direction : null;
+                    if (!store.Switches.TryGetValue(BaselineStore.MakeKey(_selectedSwitchId, currentDir), out bl))
+                    {
+                        // 降级：尝试无方向旧 key
+                        store.Switches.TryGetValue(_selectedSwitchId, out bl);
+                    }
+                    if (bl != null)
                     {
                         baseline = new
                         {
@@ -837,6 +1132,7 @@ namespace SwitchMonitor.UI
                             refSpikePeak = bl.RefSpikePeak,
                             refUnlockMean = bl.RefUnlockMean,
                             refConvMean = bl.RefConvMean,
+                            refLockMean = bl.RefLockMean,
                             refTailMean = bl.RefTailMean,
                             sampleCount = bl.SampleCount
                         };
@@ -847,6 +1143,57 @@ namespace SwitchMonitor.UI
             {
                 // 基线加载失败不中断主流程
                 baseline = null;
+            }
+
+            // D7: 加载电流诊断基线（用于电流曲线图表叠加显示），按方向查找
+            object currentBaseline = null;
+            try
+            {
+                string currentBaselinePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
+                    _config.Diagnosis.RulesDir, "current_baselines.json");
+                if (File.Exists(currentBaselinePath))
+                {
+                    var cStore = CurrentBaselineStore.Load(currentBaselinePath);
+                    CurrentBaseline cbl;
+                    // 优先按方向精确查找，降级到无方向旧格式
+                    string currentDir = currentEvent != null ? currentEvent.Direction : null;
+                    if (!cStore.Switches.TryGetValue(CurrentBaselineStore.MakeKey(_selectedSwitchId, currentDir), out cbl))
+                    {
+                        cStore.Switches.TryGetValue(_selectedSwitchId, out cbl);
+                    }
+                    if (cbl != null)
+                    {
+                        currentBaseline = new
+                        {
+                            refSpikePeakA = cbl.RefSpikePeakA,
+                            refSpikeIndexA = cbl.RefSpikeIndexA,
+                            refUnlockMeanA = cbl.RefUnlockMeanA,
+                            refConvMeanA = cbl.RefConvMeanA,
+                            refLockMeanA = cbl.RefLockMeanA,
+                            refTailMeanA = cbl.RefTailMeanA,
+                            refSpikePeakB = cbl.RefSpikePeakB,
+                            refSpikeIndexB = cbl.RefSpikeIndexB,
+                            refUnlockMeanB = cbl.RefUnlockMeanB,
+                            refConvMeanB = cbl.RefConvMeanB,
+                            refLockMeanB = cbl.RefLockMeanB,
+                            refTailMeanB = cbl.RefTailMeanB,
+                            refSpikePeakC = cbl.RefSpikePeakC,
+                            refSpikeIndexC = cbl.RefSpikeIndexC,
+                            refUnlockMeanC = cbl.RefUnlockMeanC,
+                            refConvMeanC = cbl.RefConvMeanC,
+                            refLockMeanC = cbl.RefLockMeanC,
+                            refTailMeanC = cbl.RefTailMeanC,
+                            refDurationSec = cbl.RefDurationSec,
+                            refMaxUnbalanceRatio = cbl.RefMaxUnbalanceRatio,
+                            sampleCount = cbl.SampleCount
+                        };
+                    }
+                }
+            }
+            catch
+            {
+                // 电流基线加载失败不中断主流程
+                currentBaseline = null;
             }
 
             // 构建传给 JS 的数据对象
@@ -862,7 +1209,8 @@ namespace SwitchMonitor.UI
                 colors = _config.ChartColors,
                 diagnosis = diagnosis,
                 refCurve = refCurve,
-                baseline = baseline
+                baseline = baseline,
+                currentBaseline = currentBaseline
             };
 
             string chartDataJson = _serializer.Serialize(chartData);
@@ -897,6 +1245,122 @@ namespace SwitchMonitor.UI
                 power[i] = i < evt.Power.Count ? evt.Power[i] : (object)new double[] { t, 0 };
             }
 
+            // 计算阶段边界时间（供前端基线分段显示）
+            object phases = null;
+            try
+            {
+                var feats = FeatureExtractor.Extract(evt);
+                if (feats.IsValid)
+                {
+                    int n = feats.SampleCount;
+                    double interval = evt.SampleInterval;
+                    int si = feats.SpikeIndex;
+                    int ae = feats.ActiveEnd;
+
+                    // 尖峰：spikeIndex 附近放宽 ±2 采样点，截止到解锁段起点
+                    double spikeStart = Math.Round(Math.Max(0, si - 2) * interval, 3);
+                    double spikeEnd = Math.Round((si + 2) * interval, 3);
+
+                    // 解锁段：[si+2, min(si+14, n))
+                    int ulEnd = Math.Min(si + 14, n);
+                    double unlockStart = Math.Round((si + 2) * interval, 3);
+                    double unlockEnd = Math.Round(ulEnd * interval, 3);
+
+                    // 转换段：首选 [si+20, ae-40)，退化为 [si+2, ae)
+                    int convStart, convEnd;
+                    if (ae - 40 > si + 20)
+                    {
+                        convStart = si + 20;
+                        convEnd = ae - 40;
+                    }
+                    else
+                    {
+                        convStart = si + 2;
+                        convEnd = ae;
+                    }
+                    if (convStart >= convEnd)
+                    {
+                        convStart = 0;
+                        convEnd = ae + 1;
+                    }
+                    double convStartSec = Math.Round(convStart * interval, 3);
+                    double convEndSec = Math.Round(Math.Min(convEnd, n) * interval, 3);
+
+                    // 锁闭段：[ae-40, ae-22)，ae≤50 时无锁闭段
+                    double lockStartSec = 0.0, lockEndSec = 0.0;
+                    if (ae > 50)
+                    {
+                        int lockStart = ae - 40;
+                        if (lockStart < 0) lockStart = 0;
+                        int lockEnd = ae - 22;
+                        lockStartSec = Math.Round(lockStart * interval, 3);
+                        lockEndSec = Math.Round(lockEnd * interval, 3);
+                    }
+
+                    // 缓放段：[ae-22, ae-2)，ae≤30 时无缓放段
+                    double tailStartSec = 0.0, tailEndSec = 0.0;
+                    if (ae > 30)
+                    {
+                        int tailStart = Math.Max(0, ae - 22);
+                        int tailEnd = ae - 2;
+                        tailStartSec = Math.Round(tailStart * interval, 3);
+                        tailEndSec = Math.Round(tailEnd * interval, 3);
+                    }
+
+                    phases = new
+                    {
+                        spikeStartSec = spikeStart,
+                        spikeEndSec = spikeEnd,
+                        unlockStartSec = unlockStart,
+                        unlockEndSec = unlockEnd,
+                        convStartSec = convStartSec,
+                        convEndSec = convEndSec,
+                        lockStartSec = lockStartSec,
+                        lockEndSec = lockEndSec,
+                        tailStartSec = tailStartSec,
+                        tailEndSec = tailEndSec
+                    };
+                }
+            }
+            catch
+            {
+                phases = null;
+            }
+
+            // D7: 计算电流曲线每相阶段边界（供前端电流基线分段显示）
+            object currentPhases = null;
+            try
+            {
+                // 从 evt 的原始 [t,v] 对中提取 v 列
+                var rawA = new List<double>();
+                var rawB = new List<double>();
+                var rawC = new List<double>();
+                foreach (var pair in evt.CurrentA)
+                    rawA.Add(pair != null && pair.Length >= 2 ? pair[1] : 0.0);
+                foreach (var pair in evt.CurrentB)
+                    rawB.Add(pair != null && pair.Length >= 2 ? pair[1] : 0.0);
+                foreach (var pair in evt.CurrentC)
+                    rawC.Add(pair != null && pair.Length >= 2 ? pair[1] : 0.0);
+
+                var cfA = CurrentFeatureExtractor.ExtractPhase(rawA);
+                var cfB = CurrentFeatureExtractor.ExtractPhase(rawB);
+                var cfC = CurrentFeatureExtractor.ExtractPhase(rawC);
+
+                double interval = evt.SampleInterval;
+                int n = evt.SampleCount;
+
+                currentPhases = new
+                {
+                    A = BuildCurrentPhaseSegments(cfA.SpikeIndexA, cfA.ActiveEnd, interval, n),
+                    B = BuildCurrentPhaseSegments(cfB.SpikeIndexA, cfB.ActiveEnd, interval, n),
+                    C = BuildCurrentPhaseSegments(cfC.SpikeIndexA, cfC.ActiveEnd, interval, n)
+                };
+            }
+            catch
+            {
+                currentPhases = null;
+            }
+
             return new
             {
                 timestamp = evt.Timestamp,
@@ -906,7 +1370,9 @@ namespace SwitchMonitor.UI
                 currentA = currentA,
                 currentB = currentB,
                 currentC = currentC,
-                power = power
+                power = power,
+                phases = phases,
+                currentPhases = currentPhases
             };
         }
 
@@ -929,6 +1395,75 @@ namespace SwitchMonitor.UI
                     return sg.Label;
             }
             return switchId;
+        }
+
+        /// <summary>
+        /// D7: 根据电流曲线的 spikeIndex 和 activeEnd 计算阶段边界时间。
+        /// 与 CurrentFeatureExtractor.ExtractPhaseInternal 的五阶段分割一致。
+        /// </summary>
+        private static object BuildCurrentPhaseSegments(int spikeIndex, int activeEnd, double interval, int n)
+        {
+            // ① 尖峰段：[0, spikeIndex+2]
+            double spikeEnd = Math.Round(Math.Min(spikeIndex + 2, n) * interval, 3);
+
+            // ② 解锁段：[spikeIndex+2, spikeIndex+14)
+            int ulEnd = Math.Min(spikeIndex + 14, n);
+            double unlockStart = Math.Round((spikeIndex + 2) * interval, 3);
+            double unlockEnd = Math.Round(ulEnd * interval, 3);
+
+            // ③ 转换段：首选 [spikeIndex+20, activeEnd-40)，退化 [spikeIndex+2, activeEnd)，再退化 [0, activeEnd]
+            int convStart, convEnd;
+            if (activeEnd - 40 > spikeIndex + 20)
+            {
+                convStart = spikeIndex + 20;
+                convEnd = activeEnd - 40;
+            }
+            else
+            {
+                convStart = spikeIndex + 2;
+                convEnd = activeEnd;
+            }
+            if (convStart >= convEnd)
+            {
+                convStart = 0;
+                convEnd = activeEnd + 1;
+            }
+            double convStartSec = Math.Round(convStart * interval, 3);
+            double convEndSec = Math.Round(Math.Min(convEnd, n) * interval, 3);
+
+            // ④ 锁闭段：[activeEnd-40, activeEnd-22)，activeEnd≤50 时无锁闭段
+            double lockStartSec = 0.0, lockEndSec = 0.0;
+            if (activeEnd > 50)
+            {
+                int lockStart = Math.Max(0, activeEnd - 40);
+                int lockEnd = activeEnd - 22;
+                lockStartSec = Math.Round(lockStart * interval, 3);
+                lockEndSec = Math.Round(lockEnd * interval, 3);
+            }
+
+            // ⑤ 缓放段：[activeEnd-22, activeEnd-2)，activeEnd≤30 时无缓放段
+            double tailStartSec = 0.0, tailEndSec = 0.0;
+            if (activeEnd > 30)
+            {
+                int tailStart = Math.Max(0, activeEnd - 22);
+                int tailEnd = activeEnd - 2;
+                tailStartSec = Math.Round(tailStart * interval, 3);
+                tailEndSec = Math.Round(tailEnd * interval, 3);
+            }
+
+            return new
+            {
+                spikeStartSec = 0.0,
+                spikeEndSec = spikeEnd,
+                unlockStartSec = unlockStart,
+                unlockEndSec = unlockEnd,
+                convStartSec = convStartSec,
+                convEndSec = convEndSec,
+                lockStartSec = lockStartSec,
+                lockEndSec = lockEndSec,
+                tailStartSec = tailStartSec,
+                tailEndSec = tailEndSec
+            };
         }
 
         #endregion
@@ -1047,7 +1582,7 @@ namespace SwitchMonitor.UI
         }
 
         /// <summary>
-        /// HTML: window.external.SelectSwitch("1-1")
+        /// HTML: window.external.SelectSwitch("1-J")
         /// </summary>
         public void SelectSwitch(string switchId)
         {

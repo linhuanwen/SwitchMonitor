@@ -14,6 +14,9 @@ namespace SwitchMonitor.Data
         private readonly IndexManager _indexManager;
         private readonly string _dataSourceDir;
         private readonly CsvDataReader _reader;
+        private readonly DigitSwitchRegistry _digitRegistry;
+        private readonly List<DigitEvent> _digitTimeline;  // null = digit 数据不可用
+        private readonly HashSet<int> _digitPointIdsOfInterest;
 
         /// <summary>进度回调: (消息, 百分比0-100)</summary>
         public event Action<string, int> OnProgress;
@@ -49,6 +52,80 @@ namespace SwitchMonitor.Data
             else
             {
                 _dataSourceDir = baseDir;
+            }
+
+            // ── 加载 digit 配置和数据 ──
+            _digitRegistry = LoadDigitRegistry(config);
+            if (_digitRegistry != null)
+            {
+                _digitPointIdsOfInterest = _digitRegistry.GetAllPointIds();
+                _digitTimeline = LoadDigitTimeline(config);
+            }
+        }
+
+        /// <summary>
+        /// 加载 digit.ini 道岔点号配置
+        /// </summary>
+        private static DigitSwitchRegistry LoadDigitRegistry(AppConfig config)
+        {
+            // 优先：直接解析 digit.ini
+            if (!string.IsNullOrEmpty(config.DigitIniPath) && File.Exists(config.DigitIniPath))
+            {
+                try
+                {
+                    return DigitSwitchRegistry.LoadFromIni(config.DigitIniPath);
+                }
+                catch (Exception ex)
+                {
+                    Logger.Warning("解析 digit.ini 失败: " + ex.Message);
+                }
+            }
+
+            // 回退：尝试同目录下的 switch_digit_config.json
+            if (!string.IsNullOrEmpty(config.DigitIniPath))
+            {
+                try
+                {
+                    string dir = Path.GetDirectoryName(config.DigitIniPath);
+                    string jsonPath = Path.Combine(dir ?? ".", "switch_digit_config.json");
+                    if (File.Exists(jsonPath))
+                        return DigitSwitchRegistry.Load(jsonPath);
+                }
+                catch { }
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// 加载 Digit(*).dat 开关量时间线
+        /// </summary>
+        private static List<DigitEvent> LoadDigitTimeline(AppConfig config)
+        {
+            if (string.IsNullOrEmpty(config.DigitDataDir) || !Directory.Exists(config.DigitDataDir))
+                return null;
+
+            try
+            {
+                var reader = new DigitReader();
+
+                // 收集所有关心点号
+                var pointIds = new HashSet<int>();
+                foreach (var group in config.SwitchGroups)
+                {
+                    if (group.DbPointId.HasValue) pointIds.Add(group.DbPointId.Value);
+                    if (group.FbPointId.HasValue) pointIds.Add(group.FbPointId.Value);
+                }
+
+                if (pointIds.Count == 0)
+                    return null;
+
+                return reader.BuildTimeline(config.DigitDataDir, pointIds);
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning("加载 digit 数据失败: " + ex.Message);
+                return null;
             }
         }
 
@@ -195,16 +272,38 @@ namespace SwitchMonitor.Data
                 dayList.Add(evt);
             }
 
-            // 对每天的 event 按时间戳排序（升序），交替分配方向
+            // 对每天的 event 按时间戳排序（升序），使用 digit 数据判定方向
             int totalEvents = 0;
+
+            // 为该 switch group 创建方向判定器
+            DirectionResolver directionResolver = null;
+            if (_digitRegistry != null && _digitTimeline != null)
+            {
+                DigitPointIds ptIds;
+                if (_digitRegistry.TryGetConfig(group.Id, out ptIds) &&
+                    ptIds.db_point_id > 0 && ptIds.fb_point_id > 0)
+                {
+                    directionResolver = new DirectionResolver(
+                        ptIds.db_point_id, ptIds.fb_point_id, _digitTimeline);
+                }
+            }
+
             foreach (var kvp in dateGroups)
             {
                 var events = kvp.Value;
                 events.Sort((a, b) => a.Timestamp.CompareTo(b.Timestamp));
 
-                for (int i = 0; i < events.Count; i++)
+                // 使用 digit 数据判定方向（流式查找）
+                if (directionResolver != null)
                 {
-                    events[i].Direction = (i % 2 == 0) ? "定位→反位" : "反位→定位";
+                    directionResolver.Reset();
+                    foreach (var evt in events)
+                    {
+                        string direction = directionResolver.Resolve(evt.Timestamp);
+                        if (direction != null)
+                            evt.Direction = direction;
+                        // else: 保持默认值 "未知"
+                    }
                 }
 
                 // 保存到 parsed_data 并更新索引
@@ -218,21 +317,49 @@ namespace SwitchMonitor.Data
                         var diagnoses = new List<EventDiagnosis>(events.Count);
                         foreach (var evt in events)
                         {
+                            EventDiagnosis diag;
                             try
                             {
-                                var diag = DiagnoseHook(group.Id, evt);
-                                if (diag != null)
-                                    diagnoses.Add(diag);
+                                diag = DiagnoseHook(group.Id, evt);
+                                if (diag == null)
+                                {
+                                    // 诊断钩子返回 null → 创建默认正常诊断（确保每个事件都有对应记录）
+                                    diag = new EventDiagnosis
+                                    {
+                                        Timestamp = evt.Timestamp,
+                                        Level = "正常",
+                                        Results = new List<DiagnosisItem>()
+                                    };
+                                }
                             }
                             catch (Exception ex)
                             {
-                                // 单个事件诊断失败不中断导入
+                                // 单个事件诊断抛异常 → 创建缺省报警（与 RerunAll 行为一致）
                                 Logger.Error(string.Format("诊断失败 switchId={0} eventTs={1}", group.Id, evt.Timestamp), ex);
+                                diag = new EventDiagnosis
+                                {
+                                    Timestamp = evt.Timestamp,
+                                    Level = "报警",
+                                    Results = new List<DiagnosisItem>
+                                    {
+                                        new DiagnosisItem
+                                        {
+                                            RuleId = "R0",
+                                            RuleName = "采集异常",
+                                            Level = "报警",
+                                            Description = "诊断引擎执行异常: " + ex.Message,
+                                            Value = 0,
+                                            Reference = 0
+                                        }
+                                    }
+                                };
                             }
+                            diagnoses.Add(diag);
                         }
 
-                        if (diagnoses.Count > 0)
-                            _indexManager.SaveDayDiagnosis(group.Id, kvp.Key, diagnoses);
+                        // 始终保存诊断结果（diagnoses 数量与 events 一致），
+                        // 即使全为正常也能正确清除旧的 alarms_index 条目
+                        _indexManager.SaveDayDiagnosis(group.Id, kvp.Key, diagnoses);
                     }
                     catch (Exception ex)
                     {

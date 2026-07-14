@@ -111,7 +111,7 @@ namespace SwitchMonitor.Diagnosis
         /// <param name="switchId">道岔标识</param>
         /// <returns>参考曲线</returns>
         public static ReferenceCurve Build(List<List<double>> normalCurves,
-            double sampleInterval = 0.04, string switchId = "1-1")
+            double sampleInterval = 0.04, string switchId = "1-J")
         {
             if (normalCurves == null || normalCurves.Count == 0)
                 return null;

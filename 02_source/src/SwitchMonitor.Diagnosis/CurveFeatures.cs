@@ -4,12 +4,15 @@ using System.Collections.Generic;
 namespace SwitchMonitor.Diagnosis
 {
     /// <summary>
-    /// 功率曲线 12 维特征 POCO。
+    /// 功率曲线 13 维特征 POCO。
     /// 所有数值字段在 FeatureExtractor 中已通过 Math.Round 保留精度：
     /// DurationSec 保留 2 位小数，其余保留 3 位。
     /// </summary>
     public class CurveFeatures
     {
+        /// <summary>动作方向："定位→反位" 或 "反位→定位"</summary>
+        public string Direction;
+
         /// <summary>原始功率采样值序列（kW），供 P1 逐点对比使用。可空。</summary>
         public List<double> RawValues;
 
@@ -45,6 +48,9 @@ namespace SwitchMonitor.Diagnosis
 
         /// <summary>台阶比 = 转换段后1/3均值 / 前1/3均值</summary>
         public double StepRatio;
+
+        /// <summary>锁闭段均值 [activeEnd-40, activeEnd-22)，kW；activeEnd≤50 时为 0</summary>
+        public double LockMean;
 
         /// <summary>缓放段均值 [activeEnd-22, activeEnd-2)，kW；activeEnd≤30 时为 0</summary>
         public double TailMean;

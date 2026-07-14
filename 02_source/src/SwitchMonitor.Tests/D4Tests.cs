@@ -133,9 +133,9 @@ namespace SwitchMonitor.Tests
                     }
                 };
 
-                im.SaveDayDiagnosis("4-1", "2026-01-29", diagnoses);
+                im.SaveDayDiagnosis("4-J", "2026-01-29", diagnoses);
 
-                string expectedPath = Path.Combine(tempDir, "4-1", "2026-01-29.diag.json");
+                string expectedPath = Path.Combine(tempDir, "4-J", "2026-01-29.diag.json");
                 TestRunner.AssertFileExists(expectedPath, ".diag.json 文件");
             }
             finally
@@ -163,9 +163,9 @@ namespace SwitchMonitor.Tests
                     }
                 };
 
-                im.SaveDayDiagnosis("4-1", "2026-01-29", diagnoses);
+                im.SaveDayDiagnosis("4-J", "2026-01-29", diagnoses);
 
-                var loaded = im.LoadDayDiagnosis("4-1", "2026-01-29");
+                var loaded = im.LoadDayDiagnosis("4-J", "2026-01-29");
 
                 TestRunner.AssertEqual(2, loaded.Count, "加载事件数");
                 TestRunner.AssertEqual(1770922311L, loaded[0].Timestamp, "事件1 timestamp");
@@ -189,7 +189,7 @@ namespace SwitchMonitor.Tests
                 var im = new IndexManager(tempDir);
                 im.Initialize();
 
-                var loaded = im.LoadDayDiagnosis("1-1", "2099-01-01");
+                var loaded = im.LoadDayDiagnosis("1-J", "2099-01-01");
                 TestRunner.AssertNotNull(loaded, "缺失文件应返回空列表非null");
                 TestRunner.AssertEqual(0, loaded.Count, "缺失文件返回空列表");
             }
@@ -211,7 +211,7 @@ namespace SwitchMonitor.Tests
                 var first = new List<EventDiagnosis> {
                     new EventDiagnosis { Timestamp = 1, Level = "正常", Results = new List<DiagnosisItem>() }
                 };
-                im.SaveDayDiagnosis("1-1", "2026-01-01", first);
+                im.SaveDayDiagnosis("1-J", "2026-01-01", first);
 
                 // 第二次写入（覆盖）
                 var second = new List<EventDiagnosis> {
@@ -222,9 +222,9 @@ namespace SwitchMonitor.Tests
                         }
                     }
                 };
-                im.SaveDayDiagnosis("1-1", "2026-01-01", second);
+                im.SaveDayDiagnosis("1-J", "2026-01-01", second);
 
-                var loaded = im.LoadDayDiagnosis("1-1", "2026-01-01");
+                var loaded = im.LoadDayDiagnosis("1-J", "2026-01-01");
                 TestRunner.AssertEqual(1, loaded.Count, "覆盖后只有新数据");
                 TestRunner.AssertEqual(2L, loaded[0].Timestamp, "覆盖后 timestamp");
                 TestRunner.AssertEqual("故障", loaded[0].Level, "覆盖后 level");
@@ -250,14 +250,14 @@ namespace SwitchMonitor.Tests
                     new EventDiagnosis { Timestamp = 2, Level = "故障", Results = new List<DiagnosisItem>() },
                     new EventDiagnosis { Timestamp = 3, Level = "故障", Results = new List<DiagnosisItem>() },
                 };
-                im.SaveDayDiagnosis("4-1", "2026-01-29", diagnoses);
+                im.SaveDayDiagnosis("4-J", "2026-01-29", diagnoses);
 
                 var index = im.LoadAlarmsIndex();
                 TestRunner.AssertNotNull(index, "alarms_index 非null");
-                TestRunner.AssertTrue(index.ContainsKey("4-1"), "含 4-1");
-                TestRunner.AssertTrue(index["4-1"].ContainsKey("2026-01-29"), "含日期 2026-01-29");
+                TestRunner.AssertTrue(index.ContainsKey("4-J"), "含 4-1");
+                TestRunner.AssertTrue(index["4-J"].ContainsKey("2026-01-29"), "含日期 2026-01-29");
 
-                var counts = index["4-1"]["2026-01-29"];
+                var counts = index["4-J"]["2026-01-29"];
                 TestRunner.AssertTrue(counts.ContainsKey("预警"), "含 预警 键");
                 TestRunner.AssertTrue(counts.ContainsKey("报警"), "含 报警 键");
                 TestRunner.AssertTrue(counts.ContainsKey("故障"), "含 故障 键");
@@ -281,11 +281,11 @@ namespace SwitchMonitor.Tests
                 {
                     new EventDiagnosis { Timestamp = 1, Level = "正常", Results = new List<DiagnosisItem>() },
                 };
-                im.SaveDayDiagnosis("1-1", "2026-02-13", diagnoses);
+                im.SaveDayDiagnosis("1-J", "2026-02-13", diagnoses);
 
                 var index = im.LoadAlarmsIndex();
                 // 全是正常事件 → 该日期不应出现
-                TestRunner.AssertFalse(index.ContainsKey("1-1") && index["1-1"].ContainsKey("2026-02-13"),
+                TestRunner.AssertFalse(index.ContainsKey("1-J") && index["1-J"].ContainsKey("2026-02-13"),
                     "全正常日期不在 alarms_index 中");
             }
             finally
@@ -308,13 +308,13 @@ namespace SwitchMonitor.Tests
                     new EventDiagnosis { Timestamp = 1, Level = "正常", Results = new List<DiagnosisItem>() },
                     new EventDiagnosis { Timestamp = 2, Level = "预警", Results = new List<DiagnosisItem>() },
                 };
-                im.SaveDayDiagnosis("1-1", "2026-02-13", diagnoses);
+                im.SaveDayDiagnosis("1-J", "2026-02-13", diagnoses);
 
                 var index = im.LoadAlarmsIndex();
-                TestRunner.AssertTrue(index.ContainsKey("1-1"), "含 1-1");
-                TestRunner.AssertTrue(index["1-1"].ContainsKey("2026-02-13"), "含日期");
+                TestRunner.AssertTrue(index.ContainsKey("1-J"), "含 1-1");
+                TestRunner.AssertTrue(index["1-J"].ContainsKey("2026-02-13"), "含日期");
 
-                var counts = index["1-1"]["2026-02-13"];
+                var counts = index["1-J"]["2026-02-13"];
                 // 三个键恒输出含0
                 TestRunner.AssertEqual(1, counts["预警"], "预警=1");
                 TestRunner.AssertEqual(0, counts["报警"], "报警=0");
@@ -390,7 +390,7 @@ namespace SwitchMonitor.Tests
         class StubNormalEngine : IDiagnosisEngine
         {
             public void Initialize(string rulesDir) { }
-            public List<DiagnosisResult> Diagnose(string switchId, CurveFeatures features)
+            public List<DiagnosisResult> Diagnose(string switchId, CurveFeatures features, string direction = null)
             {
                 return new List<DiagnosisResult>(); // 正常
             }
@@ -402,7 +402,7 @@ namespace SwitchMonitor.Tests
         class StubFaultEngine : IDiagnosisEngine
         {
             public void Initialize(string rulesDir) { }
-            public List<DiagnosisResult> Diagnose(string switchId, CurveFeatures features)
+            public List<DiagnosisResult> Diagnose(string switchId, CurveFeatures features, string direction = null)
             {
                 return new List<DiagnosisResult>
                 {
@@ -438,7 +438,7 @@ namespace SwitchMonitor.Tests
                     }
                 };
 
-                var result = DiagnosisRunner.Run(engine, "1-1", evt);
+                var result = DiagnosisRunner.Run(engine, "1-J", evt);
 
                 TestRunner.AssertNotNull(result, "返回非null");
                 TestRunner.AssertEqual(1770922311L, result.Timestamp, "Timestamp");
@@ -473,7 +473,7 @@ namespace SwitchMonitor.Tests
                     }
                 };
 
-                var result = DiagnosisRunner.Run(engine, "4-1", evt);
+                var result = DiagnosisRunner.Run(engine, "4-J", evt);
 
                 TestRunner.AssertNotNull(result, "返回非null");
                 TestRunner.AssertEqual(1769618597L, result.Timestamp, "Timestamp");
@@ -524,7 +524,7 @@ namespace SwitchMonitor.Tests
                 {
                     SwitchGroups = new List<SwitchGroup>
                     {
-                        new SwitchGroup { Id = "1-1", Label = "1-1", DataFileIndex = 0 }
+                        new SwitchGroup { Id = "1-J", Label = "1-J", DataFileIndex = 0 }
                     },
                     ParsedDataDir = "parsed_data"
                 };
@@ -558,11 +558,11 @@ namespace SwitchMonitor.Tests
                 pipeline.ImportAll(csvDir);
 
                 TestRunner.AssertEqual(1, hookCallCount, "DiagnoseHook 被调用1次");
-                TestRunner.AssertEqual("1-1", lastSwitchId, "switchId 正确");
+                TestRunner.AssertEqual("1-J", lastSwitchId, "switchId 正确");
                 TestRunner.AssertNotNull(lastResult, "返回 EventDiagnosis 非null");
 
                 // 验证 .diag.json 被生成
-                string diagPath = Path.Combine(parsedDir, "1-1", "2026-02-13.diag.json");
+                string diagPath = Path.Combine(parsedDir, "1-J", "2026-02-13.diag.json");
                 TestRunner.AssertFileExists(diagPath, ".diag.json 由 pipeline 生成");
             }
             finally
@@ -589,7 +589,7 @@ namespace SwitchMonitor.Tests
                 {
                     SwitchGroups = new List<SwitchGroup>
                     {
-                        new SwitchGroup { Id = "1-1", Label = "1-1", DataFileIndex = 0 }
+                        new SwitchGroup { Id = "1-J", Label = "1-J", DataFileIndex = 0 }
                     },
                     ParsedDataDir = "parsed_data"
                 };
@@ -605,7 +605,7 @@ namespace SwitchMonitor.Tests
                 pipeline.ImportAll(csvDir);
 
                 // .diag.json 不应生成（没有 hook）
-                string diagPath = Path.Combine(parsedDir, "1-1", "2026-02-13.diag.json");
+                string diagPath = Path.Combine(parsedDir, "1-J", "2026-02-13.diag.json");
                 TestRunner.AssertFalse(File.Exists(diagPath), "无 hook 时不生成 .diag.json");
 
                 TestRunner.AssertTrue(pipeline.TotalEventsImported > 0, "导入正常完成");

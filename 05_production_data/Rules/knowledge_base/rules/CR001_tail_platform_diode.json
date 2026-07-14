@@ -1,0 +1,80 @@
+{
+  "_schema": "M3候选规则 — 从KB002知识条目提取，待dryrun验证后晋升M2",
+  "ruleId": "CR001",
+  "provisionalM2Id": "R14",
+  "displayName": "尾部小平台倍增（表示二极管击穿）",
+  "level": "预警",
+  "type": "morphology",
+  "status": "dryrun_verified",
+
+  "source": {
+    "kbEntryId": "KB002",
+    "knowledgePointIds": ["KP1", "KP2", "KP3", "KP4"],
+    "confidence": "medium",
+    "confidenceNote": "仅1个现场案例(荣家湾站2011年)，缺乏统计分布验证。Dryrun已在23,806条正常曲线上完成分布标定。"
+  },
+
+  "rule": {
+    "feature": "tailPlatformMean",
+    "featureNote": "缓放段(尾部小平台)的功率均值。对应电流曲线中的1DQJ缓放平台，反映表示电路回路状态。",
+    "operator": "tailPlatformMean > refTailPlatformMean × tailMultiplier",
+    "threshold": 1.8,
+    "thresholdNote": "故障案例中为~2.0×(电流域)。Dryrun验证：正常分布P99.5=1.085×、P99.9=1.273×、Max=2.385×。1.8×对应约20σ偏离——误报率极低。",
+    "crossValidation": [
+      "启动峰值正常(R4不触发) → 排除启动阻力异常",
+      "转换段正常(R5不触发) → 排除滑床板/异物",
+      "转换段台阶正常(R6不触发) → 排除中途受阻",
+      "以上三条全部通过 + 尾部倍增 → 高置信度表示电路故障"
+    ],
+    "crossValidationNote": "Dryrun发现：所有12条触发CR001的曲线均同时触发R3(时长偏差)——无孤立尾部倍增案例。这意味着：(a)正常数据集中无二极管击穿案例(好)；(b)孤立尾部倍增+其他段正常=极强的表示电路故障信号。建议联合判定：CR001+R4正常+R5正常=高置信度二极管击穿。"
+  },
+
+  "parameterDerivation": {
+    "source": "KB002 KP2 实测值",
+    "normalTailCurrent": "~1.7A",
+    "faultTailCurrent": "~3.4A",
+    "observedRatio": 2.0,
+    "recommendedThreshold": 1.8,
+    "recommendedThresholdReason": "故障案例ratio=2.0，取1.8为警戒线，保留安全裕度。Dryrun确认：正常数据P99.9=1.273×，1.8×远超正常波动范围。",
+    "powerDomainNote": "功率域中的基准值(P_tail_ref)从baselines.json获取：ZYJ7正常尾部小平台功率约0.21kW。倍增逻辑(×1.8)在功率域和电流域中一致。"
+  },
+
+  "validation": {
+    "dryrunDate": "2026-07-14",
+    "dryrunDataset": "三水北 23,806条正常曲线 (8台ZYJ7, 2025-11~2026-06)",
+    "dryrunStats": {
+      "totalCurves": 23806,
+      "meanRatio": 1.002,
+      "stdevRatio": 0.044,
+      "p50Ratio": 1.000,
+      "p95Ratio": 1.057,
+      "p99Ratio": 1.072,
+      "p995Ratio": 1.085,
+      "p999Ratio": 1.273,
+      "maxRatio": 2.385,
+      "triggeredAt1_8x": 12,
+      "triggerRate1_8x": "0.0504%",
+      "triggeredAt2_0x": 9,
+      "triggerRate2_0x": "0.0378%"
+    },
+    "outlierAnalysis": {
+      "totalOutliers": 12,
+      "allAlsoTriggerR3": true,
+      "someAlsoTriggerR4orR5": true,
+      "cluster4X_20260424": "4条曲线在3.5分钟内连续触发(ts=1776963435~1776963649)，尾部平台2.35-2.39×，疑似短暂表示电路异常",
+      "conclusion": "正常数据集中无孤立尾部倍增案例（所有触发均有其他段异常伴随）。CR001的独特价值在于：当R4/R5正常但CR001触发时，高置信度指向表示电路故障而非机械问题。"
+    },
+    "manualReviewResult": null,
+    "promotion": {
+      "promotedToM2": false,
+      "promotedDate": null,
+      "m2RuleId": "R14",
+      "recommendation": "建议晋升——误报率极低(0.05%)，且与现有R8互补(R8检测±30%偏离，CR001检测倍增模式)。建议以R14身份加入M2，enabled: true，level: 预警，附带孤立性交叉验证逻辑。"
+    }
+  },
+
+  "rollback": {
+    "date": null,
+    "reason": null
+  }
+}

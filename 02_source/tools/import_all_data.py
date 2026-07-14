@@ -20,6 +20,10 @@ from datetime import datetime
 from pathlib import Path
 from collections import defaultdict
 
+# Digit data parsing imports
+from parse_digit_ini import parse_digit_ini
+from parse_local_receive import parse_digit_file
+
 # ── CSM2010 binary constants ──────────────────────────────────────────
 BLOCK_SIZE = 4014
 HEADER_SIZE = 14
@@ -29,13 +33,13 @@ SAMPLE_INTERVAL = 0.04
 
 # Switch group definitions (matching ConfigManager.CreateDefaultConfig)
 SWITCH_GROUPS = [
-    {"id": "1-1", "label": "1-1", "dataFileIndex": 0},
+    {"id": "1-J", "label": "1-J", "dataFileIndex": 0},
     {"id": "1-X", "label": "1-X", "dataFileIndex": 4},
-    {"id": "3-1", "label": "3-1", "dataFileIndex": 8},
+    {"id": "3-J", "label": "3-J", "dataFileIndex": 8},
     {"id": "3-X", "label": "3-X", "dataFileIndex": 12},
-    {"id": "2-1", "label": "2-1", "dataFileIndex": 16},
+    {"id": "2-J", "label": "2-J", "dataFileIndex": 16},
     {"id": "2-X", "label": "2-X", "dataFileIndex": 20},
-    {"id": "4-1", "label": "4-1", "dataFileIndex": 24},
+    {"id": "4-J", "label": "4-J", "dataFileIndex": 24},
     {"id": "4-X", "label": "4-X", "dataFileIndex": 28},
 ]
 
@@ -44,8 +48,9 @@ def parse_dat_file(filepath, file_index, is_second_file=False):
     """Parse a single .dat file, return list of event dicts.
 
     Phase encoding: each switch group uses 2 paired files (N and N+3).
-    - First file (index N): contains phases C, A, B
-      Phase byte3 = N + offset, where offset: 0=C-current, 1=A-current, 2=B-current
+    - First file (index N): contains phases A, B, C
+      Phase byte3 = N + offset, where offset: 0=A-current, 1=B-current, 2=C-current (依据 DC.ini)
+      (flag 16777216/0x01000000 → byte3=1 → B相, 33554432/0x02000000 → byte3=2 → C相)
     - Second file (index N+3): contains Power only
       Phase byte3 = N + 3, offset = 3 = Power
     """
@@ -76,15 +81,15 @@ def parse_dat_file(filepath, file_index, is_second_file=False):
         # Phase detection
         phase_byte3 = (flags >> 24) & 0xFF
         if is_second_file:
-            # Second file: Power (offset 0)
+            # Second file: Power
             phase_type = 0
         else:
-            # First file: offset = byte3 - file_index → 0=C-current, 1=A-current, 2=B-current
+            # First file: offset = byte3 - file_index → 0=A-current, 1=B-current, 2=C-current
             offset = phase_byte3 - file_index
-            if offset == 0:
-                phase_type = 3  # C-current
+            if offset >= 0 and offset <= 2:
+                phase_type = offset + 1  # 0→1(A), 1→2(B), 2→3(C)
             else:
-                phase_type = offset  # 1=A, 2=B
+                phase_type = offset  # fallback, shouldn't happen
 
         events.append({
             'timestamp': ts,
@@ -103,7 +108,8 @@ def merge_events(events_list):
     """Merge events from 2 paired .dat files, grouping by timestamp.
 
     Uses phase_type field (0=Power, 1=A-current, 2=B-current, 3=C-current)
-    set during parsing, which is relative to each file's index.
+    computed from offset+1 during parsing:
+      offset 0 → A, offset 1 → B, offset 2 → C
     """
     event_map = {}  # timestamp -> dict of phase data
 
@@ -158,7 +164,7 @@ def build_switch_event(evt):
     return {
         'Timestamp': evt['timestamp'],
         'DateTimeStr': evt['datetime'],
-        'Direction': '',  # filled later
+        'Direction': '未知',  # resolved from digit data later
         'Duration': duration,
         'SampleInterval': sample_interval,
         'SampleCount': sample_count,
@@ -169,8 +175,46 @@ def build_switch_event(evt):
     }
 
 
-def process_switch_group(group, raw_dir, output_dir):
-    """Process one switch group: read 2 paired .dat files, merge, write JSON."""
+def resolve_direction(timestamp, db_point_id, fb_point_id, digit_timeline):
+    """Determine switch direction from DB/FB states at the event timestamp.
+
+    Scans the digit_timeline (sorted by timestamp) to find the most recent
+    DB and FB states before or at the given timestamp.
+
+    Returns:
+        "定位→反位" if DB=1/FB=0
+        "反位→定位" if DB=0/FB=1
+        None if states are ambiguous or unknown
+    """
+    if not digit_timeline:
+        return None
+
+    db_state = None
+    fb_state = None
+
+    for event in digit_timeline:
+        if event['timestamp'] > timestamp:
+            break
+        if event['point_id'] == db_point_id:
+            db_state = 1 if event['state_byte'] == 0x2f else 0
+        elif event['point_id'] == fb_point_id:
+            fb_state = 1 if event['state_byte'] == 0x2f else 0
+
+    if db_state == 1 and fb_state == 0:
+        return '定位→反位'
+    if db_state == 0 and fb_state == 1:
+        return '反位→定位'
+    return None
+
+
+def process_switch_group(group, raw_dir, output_dir,
+                         digit_config=None, digit_timeline=None):
+    """Process one switch group: read 2 paired .dat files, merge, write JSON.
+
+    Args:
+        digit_config: {switch_id: {db_point_id, fb_point_id, dqj_point_id}} or None
+        digit_timeline: sorted list of {timestamp, point_id, state_byte} or None
+    """
     idx1 = group['dataFileIndex']
     idx2 = group['dataFileIndex'] + 3
     switch_id = group['id']
@@ -206,21 +250,35 @@ def process_switch_group(group, raw_dir, output_dir):
     # Build SwitchEvent objects
     switch_events = [build_switch_event(e) for e in merged]
 
+    # Get digit point IDs for this switch
+    db_point_id = None
+    fb_point_id = None
+    if digit_config and switch_id in digit_config:
+        cfg = digit_config[switch_id]
+        db_point_id = cfg.get('db_point_id')
+        fb_point_id = cfg.get('fb_point_id')
+
     # Group by date
     date_groups = defaultdict(list)
     for evt in switch_events:
         date_str = evt['DateTimeStr'][:10]  # "yyyy-MM-dd"
         date_groups[date_str].append(evt)
 
-    # Sort each day's events by timestamp, assign alternating direction
     total_events = 0
+    resolved_count = 0
     timestamps_by_date = defaultdict(list)
 
     for date_str, events in date_groups.items():
         events.sort(key=lambda e: e['Timestamp'])
 
-        for i, evt in enumerate(events):
-            evt['Direction'] = '定位→反位' if i % 2 == 0 else '反位→定位'
+        for evt in events:
+            # Resolve direction from digit DB/FB states
+            direction = resolve_direction(
+                evt['Timestamp'], db_point_id, fb_point_id, digit_timeline)
+            if direction is not None:
+                evt['Direction'] = direction
+                resolved_count += 1
+            # else: keep default "未知"
 
         # Write day JSON
         switch_dir = output_dir / switch_id
@@ -236,7 +294,9 @@ def process_switch_group(group, raw_dir, output_dir):
         timestamps_by_date[date_str] = sorted(
             [e['Timestamp'] for e in events], reverse=True)
 
-    print(f"  [{switch_id}] Wrote {len(date_groups)} day files, {total_events} events")
+    unknown_count = total_events - resolved_count
+    print(f"  [{switch_id}] Wrote {len(date_groups)} day files, "
+          f"{total_events} events (digit={resolved_count}, unknown={unknown_count})")
     return switch_id, timestamps_by_date
 
 
@@ -256,6 +316,10 @@ def main():
                         help='Directory containing SwitchCurve(*).dat files')
     parser.add_argument('--output-dir', default=None,
                         help='Output directory for parsed_data (default: ../05_production_data/parsed_data)')
+    parser.add_argument('--digit-ini', default=None,
+                        help='Path to digit.ini (default: 03_raw_data/Station_SSB/digit.ini)')
+    parser.add_argument('--digit-dir', default=None,
+                        help='Directory containing Digit(*).dat files (default: 03_raw_data/本地接收目录扳动)')
     args = parser.parse_args()
 
     # Determine paths
@@ -271,6 +335,59 @@ def main():
         output_dir = Path(args.output_dir)
     else:
         output_dir = repo_root / '05_production_data' / 'parsed_data'
+
+    # Load digit config from digit.ini
+    digit_config = None
+    if args.digit_ini:
+        digit_ini_path = Path(args.digit_ini)
+    else:
+        digit_ini_path = repo_root / '03_raw_data' / 'Station_SSB' / 'digit.ini'
+
+    if digit_ini_path.exists():
+        print(f"Loading digit config: {digit_ini_path}")
+        digit_config = parse_digit_ini(str(digit_ini_path))
+        print(f"  Found {len(digit_config)} switch configurations")
+    else:
+        print(f"Digit config not found: {digit_ini_path} (direction will be '未知')")
+
+    # Build digit timeline from Digit*.dat files
+    digit_timeline = None
+    if args.digit_dir:
+        digit_dir = Path(args.digit_dir)
+    else:
+        digit_dir = repo_root / '03_raw_data' / '本地接收目录扳动'
+
+    if digit_dir.exists() and digit_config:
+        digit_files = sorted(digit_dir.glob('Digit*.dat'))
+        if digit_files:
+            # Collect all point IDs of interest (DB + FB for all switches)
+            point_ids_of_interest = set()
+            for cfg in digit_config.values():
+                if 'db_point_id' in cfg:
+                    point_ids_of_interest.add(cfg['db_point_id'])
+                if 'fb_point_id' in cfg:
+                    point_ids_of_interest.add(cfg['fb_point_id'])
+
+            print(f"Building digit timeline from {len(digit_files)} files "
+                  f"(tracking {len(point_ids_of_interest)} point IDs)...")
+
+            all_events = []
+            for fp in digit_files:
+                rows = parse_digit_file(str(fp))
+                # Filter to only DB/FB point IDs
+                for r in rows:
+                    if r['point_id'] in point_ids_of_interest:
+                        all_events.append(r)
+
+            # Sort by timestamp
+            all_events.sort(key=lambda e: e['timestamp'])
+            digit_timeline = all_events
+            print(f"  Timeline: {len(digit_timeline)} relevant events")
+        else:
+            print(f"No Digit*.dat files found in {digit_dir}")
+    else:
+        if not digit_dir.exists():
+            print(f"Digit data dir not found: {digit_dir} (direction will be '未知')")
 
     print(f"Raw data dir: {raw_dir}")
     print(f"Output dir:   {output_dir}")
@@ -289,7 +406,10 @@ def main():
     total_events = 0
 
     for group in SWITCH_GROUPS:
-        result = process_switch_group(group, raw_dir, output_dir)
+        result = process_switch_group(
+            group, raw_dir, output_dir,
+            digit_config=digit_config,
+            digit_timeline=digit_timeline)
         if result:
             switch_id, timestamps_by_date = result
             all_index_data[switch_id] = timestamps_by_date

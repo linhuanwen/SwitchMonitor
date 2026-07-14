@@ -169,7 +169,8 @@ html, body {
     <label><input type="checkbox" id="chkPower" checked onchange="toggleCheckbox()">功率</label>
     <label style="margin-left:16px;"><input type="checkbox" id="chkThreshold" checked onchange="toggleCheckbox()">报警上限</label>
     <label style="margin-left:16px;"><input type="checkbox" id="chkReference" onchange="toggleReference()">参考曲线</label>
-    <label style="margin-left:8px;"><input type="checkbox" id="chkBaseline" onchange="toggleBaseline()">诊断基线</label>
+    <label style="margin-left:8px;"><input type="checkbox" id="chkBaseline" onchange="toggleBaseline()">功率基线</label>
+    <label style="margin-left:8px;"><input type="checkbox" id="chkCurrentBaseline" onchange="toggleCurrentBaseline()">电流基线</label>
     <button id="btnSetReference" disabled onclick="setReferenceCurve()">设定参考曲线</button>
     <button id="btnResetZoom" disabled onclick="resetAllZoom()">重置缩放</button>
     <button id="btnExportPng" disabled onclick="exportPng()">导出图片</button>
@@ -272,14 +273,15 @@ if (typeof JSON === 'undefined') {
 var charts = {};
 var chartDataCache = null;
 var referenceCurveData = {};   // 按 switchId 索引的参考曲线字典
-var baselineStore = {};       // 按 switchId 索引的诊断基线数据
+var baselineStore = {};       // 按 switchId 索引的诊断基线数据（功率）
+var currentBaselineStore = {}; // 按 switchId 索引的电流诊断基线数据
 
 // 默认配色（会被 C# 传入的 config 覆盖）
 var colors = {
     currentA: '#00E5E5',
     currentB: '#FF5555',
     currentC: '#CC44CC',
-    power: '#FFD700',
+    power: '#FFFFFF',
     thresholdLine: '#FF4444',
     background: '#3c3c3c',
     gridLine: '#6a6a6a',
@@ -287,7 +289,7 @@ var colors = {
     refCurrentA: '#00E5E5',
     refCurrentB: '#FF5555',
     refCurrentC: '#CC44CC',
-    refPower: '#FFD700'
+    refPower: '#55FF55'
 };
 
 // ===== 功率数据坐标变换（使 <0.6 的 0.2 步长与 >0.6 的 1.0 步长等宽） =====
@@ -623,6 +625,67 @@ function setupMousePanDrag(chart, containerId) {
     container._panMouseDown = onMouseDown;
 }
 
+// ===== D7 辅助：根据 xVal 确定当前所处的阶段 key =====
+function getPhaseKeyAtTime(phases, xVal) {
+	if (!phases) return null;
+	var segDefs = [
+		{ key: 'spike',  startKey: 'spikeStartSec',  endKey: 'spikeEndSec' },
+		{ key: 'unlock', startKey: 'unlockStartSec', endKey: 'unlockEndSec' },
+		{ key: 'conv',   startKey: 'convStartSec',   endKey: 'convEndSec' },
+		{ key: 'lock',   startKey: 'lockStartSec',   endKey: 'lockEndSec' },
+		{ key: 'tail',   startKey: 'tailStartSec',   endKey: 'tailEndSec' }
+	];
+	for (var i = 0; i < segDefs.length; i++) {
+		var seg = segDefs[i];
+		var start = phases[seg.startKey];
+		var end = phases[seg.endKey];
+		if (start !== undefined && end !== undefined && xVal >= start && xVal <= end) {
+			return seg.key;
+		}
+	}
+	return null;
+}
+
+// ===== D7 辅助：从基线系列名称中提取阶段 key =====
+function getBaselinePhaseKey(seriesName) {
+	if (!seriesName) return null;
+	if (seriesName.indexOf('尖峰') >= 0) return 'spike';
+	if (seriesName.indexOf('解锁') >= 0) return 'unlock';
+	if (seriesName.indexOf('转换') >= 0) return 'conv';
+	if (seriesName.indexOf('锁闭') >= 0) return 'lock';
+	if (seriesName.indexOf('缓放') >= 0) return 'tail';
+	return null;
+}
+
+// ===== D7 辅助：从电流基线系列名称中提取相+阶段信息 =====
+// "A-尖峰基线 1.23 A" → { phase: 'A', segKey: 'spike' }
+// "B-解锁基线 0.45 A" → { phase: 'B', segKey: 'unlock' }
+function getCurrentBaselinePhaseInfo(seriesName) {
+	if (!seriesName || seriesName.indexOf('基线') < 0) return null;
+	var phase = seriesName.charAt(0);
+	if (phase !== 'A' && phase !== 'B' && phase !== 'C') return null;
+	if (seriesName.charAt(1) !== '-') return null;
+
+	var segKey = null;
+	if (seriesName.indexOf('尖峰') >= 0) segKey = 'spike';
+	else if (seriesName.indexOf('解锁') >= 0) segKey = 'unlock';
+	else if (seriesName.indexOf('转换') >= 0) segKey = 'conv';
+	else if (seriesName.indexOf('锁闭') >= 0) segKey = 'lock';
+	else if (seriesName.indexOf('缓放') >= 0) segKey = 'tail';
+	if (!segKey) return null;
+
+	return { phase: phase, segKey: segKey };
+}
+
+// ===== D7 辅助：获取指定图表对应事件的电流每相阶段边界 =====
+function getCurrentPhasesForChart(chartKey) {
+	if (!chartDataCache) return null;
+	var evt = (chartKey === 'chart1' || chartKey === 'chart2')
+		? chartDataCache.currentEvent
+		: chartDataCache.prevEvent;
+	return (evt && evt.currentPhases) ? evt.currentPhases : null;
+}
+
 // ===== 鼠标追踪：自定义提示框 + 垂直参考线（用于所有4个图表） =====
 function setupChartMouseTracking(chart, containerId) {
     if (!chart) return;
@@ -733,10 +796,36 @@ function setupChartMouseTracking(chart, containerId) {
         var html = '<div style="font-weight:bold;margin-bottom:5px;color:#FFD700;font-size:13px;">' +
                    xVal.toFixed(2) + ' 秒</div>';
 
+        // 确定当前鼠标所处的阶段（用于过滤基线显示）
+        var phases = getPhasesForChart(containerId);
+        var currentPhaseKey = phases ? getPhaseKeyAtTime(phases, xVal) : null;
+
         // 遍历所有可见序列
         for (var s = 0; s < chart.series.length; s++) {
             var series = chart.series[s];
             if (!series.visible) continue;
+
+            var sName = series.name || '';
+
+            // 基线水平线段：仅当鼠标在对应阶段内时才显示
+            if (sName.indexOf('基线-') === 0 && sName.indexOf('基线时长') !== 0) {
+                if (currentPhaseKey === null) continue;
+                var blKey = getBaselinePhaseKey(sName);
+                if (blKey !== currentPhaseKey) continue;
+            }
+
+            // 电流基线水平线段：仅当鼠标在对应相的对应阶段内时才显示
+            var cblInfo = getCurrentBaselinePhaseInfo(sName);
+            if (cblInfo) {
+                var curPhases = getCurrentPhasesForChart(containerId);
+                if (!curPhases) continue;
+                var cp = curPhases[cblInfo.phase];
+                if (!cp) continue;
+                var segStart = cp[cblInfo.segKey + 'StartSec'];
+                var segEnd = cp[cblInfo.segKey + 'EndSec'];
+                if (segStart === undefined || segEnd === undefined || xVal < segStart || xVal > segEnd) continue;
+            }
+
             var yVal = interpolateValue(series, xVal);
             if (yVal === null) continue;
 
@@ -1061,10 +1150,10 @@ function buildDetailData(chartKey) {
     if (!evt) return null;
 
     var label = (data.switchLabel || data.switchId || '');
-    var xMax = data.xMax || 14;
     var seriesData = [];
     var title = '';
     var yAxisType = 'current';
+    var xMax = 14;
 
     if (chartKey === 'chart1' || chartKey === 'chart3') {
         var srcEvt = (chartKey === 'chart1') ? evt : data.prevEvent;
@@ -1074,12 +1163,20 @@ function buildDetailData(chartKey) {
         if (srcEvt.currentB) seriesData.push({ name: '电流(B)', color: colors.currentB, data: srcEvt.currentB });
         if (srcEvt.currentC) seriesData.push({ name: '电流(C)', color: colors.currentC, data: srcEvt.currentC });
         yAxisType = 'current';
+        // 按该事件的时长独立计算 X 轴上界
+        var d1 = (typeof srcEvt.duration === 'number') ? srcEvt.duration : 0;
+        xMax = Math.ceil(d1);
+        if (xMax < 5) xMax = 5;
     } else if (chartKey === 'chart2' || chartKey === 'chart4') {
         var srcEvt2 = (chartKey === 'chart2') ? evt : data.prevEvent;
         if (!srcEvt2 || !srcEvt2.power) return null;
         title = buildChartTitle(srcEvt2, label, '功率曲线');
         seriesData.push({ name: '功率', color: colors.power, data: srcEvt2.power });
         yAxisType = 'power';
+        // 按该事件的时长独立计算 X 轴上界
+        var d2 = (typeof srcEvt2.duration === 'number') ? srcEvt2.duration : 0;
+        xMax = Math.ceil(d2);
+        if (xMax < 5) xMax = 5;
     } else {
         return null;
     }
@@ -1185,30 +1282,33 @@ function loadChartData(dataJson) {
     var evt = data.currentEvent;
     var prevEvt = data.prevEvent || null;
 
-    // 动态计算 X 轴上限：取当前和上一次事件的时长最大值，向上取整
-    var maxDuration = 0;
-    if (evt && typeof evt.duration === 'number' && evt.duration > maxDuration) maxDuration = evt.duration;
-    if (prevEvt && typeof prevEvt.duration === 'number' && prevEvt.duration > maxDuration) maxDuration = prevEvt.duration;
-    var xMax = Math.ceil(maxDuration);
-    if (xMax < 5) xMax = 5;  // 最小 5 秒
+    // 每个图独立计算 X 轴上限（避免长事件拉长短事件的 X 轴）
+    function calcXMax(evtData) {
+        if (!evtData) return 5;
+        var d = (typeof evtData.duration === 'number') ? evtData.duration : 0;
+        var m = Math.ceil(d);
+        return m < 5 ? 5 : m;
+    }
+    var xMaxCurrent = calcXMax(evt);
+    var xMaxPrev = prevEvt ? calcXMax(prevEvt) : 5;
 
     if (!evt) {
         showError('当前事件数据为空');
         return;
     }
 
-    // 计算功率数据最大值（当前+上一次），用于动态 Y 轴上限
-    var maxPower = 0;
-    if (evt.power) {
-        for (var i = 0; i < evt.power.length; i++) {
-            if (evt.power[i][1] > maxPower) maxPower = evt.power[i][1];
+    // 每个图独立计算功率 Y 轴上限（避免高功率事件拉长低功率事件的 Y 轴）
+    function calcMaxPower(evtData) {
+        var m = 0;
+        if (evtData && evtData.power) {
+            for (var i = 0; i < evtData.power.length; i++) {
+                if (evtData.power[i][1] > m) m = evtData.power[i][1];
+            }
         }
+        return m;
     }
-    if (prevEvt && prevEvt.power) {
-        for (var j = 0; j < prevEvt.power.length; j++) {
-            if (prevEvt.power[j][1] > maxPower) maxPower = prevEvt.power[j][1];
-        }
-    }
+    var maxPowerCurrent = calcMaxPower(evt);
+    var maxPowerPrev = prevEvt ? calcMaxPower(prevEvt) : 0;
 
     // 销毁旧图表
     destroyCharts();
@@ -1240,7 +1340,7 @@ function loadChartData(dataJson) {
     charts.chart1 = createChart('chart1',
         buildChartTitle(evt, label, '电流曲线'),
         buildCurrentYAxis(thresholdCurrent),
-        seriesCurrent, xMax);
+        seriesCurrent, xMaxCurrent);
 
     // === 上排右：当前事件 · 功率曲线 ===
     if (evt.power) {
@@ -1248,13 +1348,13 @@ function loadChartData(dataJson) {
             name: '功率',
             color: colors.power,
             data: transformPowerData(evt.power),
-            lineWidth: 1.5,
+            lineWidth: 2.5,
             visible: document.getElementById('chkPower').checked
         }];
         charts.chart2 = createChart('chart2',
             buildChartTitle(evt, label, '功率曲线'),
-            buildPowerYAxis(thresholdPower, maxPower),
-            seriesPower, xMax);
+            buildPowerYAxis(thresholdPower, maxPowerCurrent),
+            seriesPower, xMaxCurrent);
     }
 
     // === 下排左：上一次事件 · 电流曲线 ===
@@ -1285,7 +1385,7 @@ function loadChartData(dataJson) {
         charts.chart3 = createChart('chart3',
             buildChartTitle(prevEvt, label, '电流曲线'),
             buildCurrentYAxis(thresholdCurrent),
-            prevSeriesCurrent, xMax);
+            prevSeriesCurrent, xMaxPrev);
 
         // === 下排右：上一次事件 · 功率曲线 ===
         if (prevEvt.power) {
@@ -1293,13 +1393,13 @@ function loadChartData(dataJson) {
                 name: '功率',
                 color: colors.power,
                 data: transformPowerData(prevEvt.power),
-                lineWidth: 1.5,
+                lineWidth: 2.5,
                 visible: document.getElementById('chkPower').checked
             }];
             charts.chart4 = createChart('chart4',
                 buildChartTitle(prevEvt, label, '功率曲线'),
-                buildPowerYAxis(thresholdPower, maxPower),
-                prevSeriesPower, xMax);
+                buildPowerYAxis(thresholdPower, maxPowerPrev),
+                prevSeriesPower, xMaxPrev);
         }
     }
 
@@ -1335,12 +1435,20 @@ function loadChartData(dataJson) {
         }
     }
 
-    // D7: 存储并自动叠加诊断基线
+    // D7: 存储并自动叠加诊断基线（功率）
     if (data.baseline) {
         baselineStore[data.switchId] = data.baseline;
         // 如果基线复选框已勾选，立即叠加显示
         if (document.getElementById('chkBaseline').checked) {
             addBaselineLines();
+        }
+    }
+
+    // D7: 存储并自动叠加电流诊断基线
+    if (data.currentBaseline) {
+        currentBaselineStore[data.switchId] = data.currentBaseline;
+        if (document.getElementById('chkCurrentBaseline').checked) {
+            addCurrentBaselineLines();
         }
     }
 
@@ -1522,7 +1630,7 @@ function addReferenceSeries() {
         if (ref.power) {
             pChart.addSeries({
                 name: '参考曲线：功率',
-                color: '#FFFFFF',
+                color: colors.refPower,
                 data: transformPowerData(ref.power),
                 lineWidth: 2,
                 marker: { enabled: false },
@@ -1568,70 +1676,251 @@ function getCurrentBaseline() {
     return baselineStore[sid] || null;
 }
 
-// ===== D7: 为功率图表添加基线水平线 + 时长垂直线 =====
+// ===== D7: 获取指定图表对应事件的阶段边界 =====
+function getPhasesForChart(chartKey) {
+    if (!chartDataCache) return null;
+    var evt = (chartKey === 'chart1' || chartKey === 'chart2')
+        ? chartDataCache.currentEvent
+        : chartDataCache.prevEvent;
+    return (evt && evt.phases) ? evt.phases : null;
+}
+
+// ===== D7: 为功率图表添加基线分段水平线 + 时长垂直线 =====
 function addBaselineLines() {
     var bl = getCurrentBaseline();
     if (!bl) return;
     removeBaselineLines();
 
-    // 功率图表（chart2, chart4）: 4 条水平基线
-    var powerCharts = [charts.chart2, charts.chart4];
+    // 功率图表基线定义（值 + 颜色 + 图例标签 + 线型）
     var powerLines = [
-        { id: 'baseline-spike',  value: bl.refSpikePeak,  color: '#FF9800', label: '尖峰 '  + bl.refSpikePeak.toFixed(2)  + ' kW' },
-        { id: 'baseline-unlock', value: bl.refUnlockMean, color: '#00BCD4', label: '解锁 ' + bl.refUnlockMean.toFixed(2) + ' kW' },
-        { id: 'baseline-conv',   value: bl.refConvMean,   color: '#4CAF50', label: '转换 '   + bl.refConvMean.toFixed(2)   + ' kW' },
-        { id: 'baseline-tail',   value: bl.refTailMean,   color: '#9C27B0', label: '缓放 '  + bl.refTailMean.toFixed(2)  + ' kW' }
+        { key: 'spike',  value: bl.refSpikePeak,  color: '#FF9800', dashStyle: 'ShortDash', lineWidth: 2, label: '基线-尖峰 '  + bl.refSpikePeak.toFixed(2)  + ' kW' },
+        { key: 'unlock', value: bl.refUnlockMean, color: '#00BCD4', dashStyle: 'ShortDash', lineWidth: 2, label: '基线-解锁 ' + bl.refUnlockMean.toFixed(2) + ' kW' },
+        { key: 'conv',   value: bl.refConvMean,   color: '#42A5F5', dashStyle: 'ShortDash', lineWidth: 2, label: '基线-转换 '   + bl.refConvMean.toFixed(2)   + ' kW' },
+        { key: 'lock',   value: bl.refLockMean,   color: '#FF7043', dashStyle: 'ShortDash', lineWidth: 2, label: '基线-锁闭 '  + bl.refLockMean.toFixed(2)  + ' kW' },
+        { key: 'tail',   value: bl.refTailMean,   color: '#9C27B0', dashStyle: 'ShortDash', lineWidth: 2, label: '基线-缓放 '  + bl.refTailMean.toFixed(2)  + ' kW' }
     ];
 
-    for (var pi = 0; pi < powerCharts.length; pi++) {
-        var pChart = powerCharts[pi];
-        if (!pChart || !pChart.yAxis || !pChart.yAxis[0]) continue;
-        var yAxis = pChart.yAxis[0];
-        for (var i = 0; i < powerLines.length; i++) {
-            var line = powerLines[i];
-            yAxis.addPlotLine({
-                id: line.id,
-                color: line.color,
-                dashStyle: 'dot',
-                width: 1.5,
-                value: transformPowerValue(line.value),
-                label: {
-                    text: line.label,
-                    style: { color: line.color, fontSize: '10px' },
-                    align: 'left',
-                    x: 4
-                },
-                zIndex: 4
-            });
+    // 功率图表（chart2 = 当前事件功率, chart4 = 上一次事件功率）
+    var powerChartKeys = ['chart2', 'chart4'];
+    for (var pi = 0; pi < powerChartKeys.length; pi++) {
+        var pChart = charts[powerChartKeys[pi]];
+        var phases = getPhasesForChart(powerChartKeys[pi]);
+        if (!pChart || !phases) continue;
+
+        // 阶段 → 基线值 对应关系
+        var segDefs = [
+            { line: powerLines[0], startKey: 'spikeStartSec',  endKey: 'spikeEndSec' },
+            { line: powerLines[1], startKey: 'unlockStartSec', endKey: 'unlockEndSec' },
+            { line: powerLines[2], startKey: 'convStartSec',   endKey: 'convEndSec' },
+            { line: powerLines[3], startKey: 'lockStartSec',   endKey: 'lockEndSec' },
+            { line: powerLines[4], startKey: 'tailStartSec',   endKey: 'tailEndSec' }
+        ];
+
+        for (var si = 0; si < segDefs.length; si++) {
+            var seg = segDefs[si];
+            var startSec = phases[seg.startKey];
+            var endSec = phases[seg.endKey];
+            // 跳过无效段（起止相同或未定义）
+            if (startSec === undefined || endSec === undefined || startSec >= endSec) continue;
+
+            var segValue = transformPowerValue(seg.line.value);
+            pChart.addSeries({
+                id: 'baseline-' + seg.line.key,
+                name: seg.line.label,
+                color: seg.line.color,
+                data: [[startSec, segValue], [endSec, segValue]],
+                dashStyle: seg.line.dashStyle,
+                lineWidth: seg.line.lineWidth,
+                marker: { enabled: false },
+                showInLegend: true,
+                enableMouseTracking: false
+            }, false);
         }
+        try { pChart.redraw(); } catch(e) {}
     }
 
-    // 所有图表: 时长垂直线
-    var allCharts = [charts.chart1, charts.chart2, charts.chart3, charts.chart4];
-    for (var ac = 0; ac < allCharts.length; ac++) {
-        var aChart = allCharts[ac];
+    // 仅功率图表: 时长垂直线（plotLine 全高）+ 图例项
+    var powerDurCharts = [charts.chart2, charts.chart4];
+    var durationLabel = '基线时长 ' + bl.refDurationSec.toFixed(2) + 's';
+    for (var ac = 0; ac < powerDurCharts.length; ac++) {
+        var aChart = powerDurCharts[ac];
         if (!aChart || !aChart.xAxis || !aChart.xAxis[0]) continue;
         aChart.xAxis[0].addPlotLine({
             id: 'baseline-duration',
-            color: '#FFFFFF',
+            color: '#AAAAAA',
             dashStyle: 'dash',
-            width: 1.5,
+            width: 2,
             value: bl.refDurationSec,
-            label: {
-                text: '基线时长 ' + bl.refDurationSec.toFixed(2) + 's',
-                style: { color: '#FFFFFF', fontSize: '10px' },
-                align: 'right',
-                rotation: 0,
-                y: 12
-            },
             zIndex: 4
         });
+        aChart.addSeries({
+            id: 'baseline-duration',
+            name: durationLabel,
+            color: '#AAAAAA',
+            data: [],
+            dashStyle: 'dash',
+            lineWidth: 2,
+            marker: { enabled: false },
+            showInLegend: true,
+            enableMouseTracking: false
+        }, false);
+        try { aChart.redraw(); } catch(e) {}
     }
 }
 
-// ===== D7: 移除诊断基线 plotLines =====
+// ===== D7: 移除诊断基线 plotLines 和图例项 =====
 function removeBaselineLines() {
-    var lineIds = ['baseline-spike', 'baseline-unlock', 'baseline-conv', 'baseline-tail', 'baseline-duration'];
+    var lineIds = ['baseline-spike', 'baseline-unlock', 'baseline-conv', 'baseline-lock', 'baseline-tail', 'baseline-duration'];
+    var keys = ['chart1', 'chart2', 'chart3', 'chart4'];
+    for (var k = 0; k < keys.length; k++) {
+        var chart = charts[keys[k]];
+        if (!chart) continue;
+        // 移除 plotLines
+        for (var i = 0; i < lineIds.length; i++) {
+            try {
+                if (chart.yAxis && chart.yAxis[0]) chart.yAxis[0].removePlotLine(lineIds[i]);
+            } catch(e) {}
+            try {
+                if (chart.xAxis && chart.xAxis[0]) chart.xAxis[0].removePlotLine(lineIds[i]);
+            } catch(e) {}
+        }
+        // 移除基线图例项系列
+        var s = chart.series.length - 1;
+        while (s >= 0) {
+            var sName = chart.series[s].name || '';
+            if (sName.indexOf('基线-') === 0 || sName.indexOf('基线时长') === 0) {
+                try { chart.series[s].remove(false); } catch(e) {}
+            }
+            s = s - 1;
+        }
+        try { chart.redraw(); } catch(e) {}
+    }
+}
+
+// ===== D7: 电流诊断基线显隐切换 =====
+function toggleCurrentBaseline() {
+    if (document.getElementById('chkCurrentBaseline').checked && getCurBaseline()) {
+        addCurrentBaselineLines();
+    } else {
+        removeCurrentBaselineLines();
+    }
+}
+
+// ===== D7: 获取当前转辙机的电流诊断基线 =====
+function getCurBaseline() {
+    if (!chartDataCache) return null;
+    var sid = chartDataCache.switchId;
+    if (!sid) return null;
+    return currentBaselineStore[sid] || null;
+}
+
+// ===== D7: 为电流图表（chart1/chart3）添加每相分段基线水平线 + 时长垂直线 =====
+function addCurrentBaselineLines() {
+    var cbl = getCurBaseline();
+    if (!cbl) return;
+    removeCurrentBaselineLines();
+
+    var phases = ['A', 'B', 'C'];
+    var segDefs = [
+        { key: 'spike',  suffix: 'SpikePeak',  label: '尖峰', color: '#FF9800' },
+        { key: 'unlock', suffix: 'UnlockMean', label: '解锁', color: '#00BCD4' },
+        { key: 'conv',   suffix: 'ConvMean',   label: '转换', color: '#42A5F5' },
+        { key: 'lock',   suffix: 'LockMean',   label: '锁闭', color: '#FF7043' },
+        { key: 'tail',   suffix: 'TailMean',   label: '缓放', color: '#9C27B0' }
+    ];
+    var phaseStyles = {
+        'A': { dashStyle: 'Solid', lineWidth: 2 },
+        'B': { dashStyle: 'ShortDash', lineWidth: 2 },
+        'C': { dashStyle: 'LongDash', lineWidth: 2 }
+    };
+
+    // 电流图表（chart1 = 当前事件, chart3 = 上一次事件）
+    var currentChartKeys = ['chart1', 'chart3'];
+    for (var ci = 0; ci < currentChartKeys.length; ci++) {
+        var cChart = charts[currentChartKeys[ci]];
+        if (!cChart) continue;
+
+        var evt = (currentChartKeys[ci] === 'chart1')
+            ? chartDataCache.currentEvent
+            : chartDataCache.prevEvent;
+        var curPhases = (evt && evt.currentPhases) ? evt.currentPhases : null;
+
+        for (var pi = 0; pi < phases.length; pi++) {
+            var phase = phases[pi];
+            var pStyle = phaseStyles[phase];
+            var ph = curPhases ? curPhases[phase] : null;
+
+            for (var si = 0; si < segDefs.length; si++) {
+                var seg = segDefs[si];
+                var refField = 'ref' + seg.suffix + phase;
+                var refValue = cbl[refField];
+                if (refValue === undefined || refValue === null) continue;
+
+                var startKey = seg.key + 'StartSec';
+                var endKey = seg.key + 'EndSec';
+                var startSec = ph ? ph[startKey] : undefined;
+                var endSec = ph ? ph[endKey] : undefined;
+                if (startSec === undefined || endSec === undefined || startSec >= endSec) continue;
+
+                var seriesId = 'curbl-' + phase + '-' + seg.key;
+                var label = phase + '-' + seg.label + '基线 ' + refValue.toFixed(2) + ' A';
+
+                cChart.addSeries({
+                    id: seriesId,
+                    name: label,
+                    color: seg.color,
+                    data: [[startSec, refValue], [endSec, refValue]],
+                    dashStyle: pStyle.dashStyle,
+                    lineWidth: pStyle.lineWidth,
+                    marker: { enabled: false },
+                    showInLegend: true,
+                    enableMouseTracking: false
+                }, false);
+            }
+        }
+        try { cChart.redraw(); } catch(e) {}
+    }
+
+    // 仅电流图表: 电流基线时长垂直线（功率图表已有功率基线时长线）
+    var curDurCharts = [charts.chart1, charts.chart3];
+    var durLabel = '电流基线时长 ' + cbl.refDurationSec.toFixed(2) + 's';
+    for (var ac = 0; ac < curDurCharts.length; ac++) {
+        var aChart = curDurCharts[ac];
+        if (!aChart || !aChart.xAxis || !aChart.xAxis[0]) continue;
+        aChart.xAxis[0].addPlotLine({
+            id: 'curbl-duration',
+            color: '#FFD700',
+            dashStyle: 'dash',
+            width: 2,
+            value: cbl.refDurationSec,
+            zIndex: 4
+        });
+        aChart.addSeries({
+            id: 'curbl-duration',
+            name: durLabel,
+            color: '#FFD700',
+            data: [],
+            dashStyle: 'dash',
+            lineWidth: 2,
+            marker: { enabled: false },
+            showInLegend: true,
+            enableMouseTracking: false
+        }, false);
+        try { aChart.redraw(); } catch(e) {}
+    }
+}
+
+// ===== D7: 移除电流诊断基线 =====
+function removeCurrentBaselineLines() {
+    var lineIds = ['curbl-duration'];
+    var phases = ['A', 'B', 'C'];
+    var segKeys = ['spike', 'unlock', 'conv', 'lock', 'tail'];
+    for (var pi = 0; pi < phases.length; pi++) {
+        for (var si = 0; si < segKeys.length; si++) {
+            lineIds.push('curbl-' + phases[pi] + '-' + segKeys[si]);
+        }
+    }
+
     var keys = ['chart1', 'chart2', 'chart3', 'chart4'];
     for (var k = 0; k < keys.length; k++) {
         var chart = charts[keys[k]];
@@ -1644,6 +1933,19 @@ function removeBaselineLines() {
                 if (chart.xAxis && chart.xAxis[0]) chart.xAxis[0].removePlotLine(lineIds[i]);
             } catch(e) {}
         }
+        // 移除电流基线图例项系列
+        var s = chart.series.length - 1;
+        while (s >= 0) {
+            var sName = chart.series[s].name || '';
+            if ((sName.indexOf('A-') === 0 || sName.indexOf('B-') === 0 || sName.indexOf('C-') === 0) && sName.indexOf('基线') >= 0) {
+                try { chart.series[s].remove(false); } catch(e) {}
+            }
+            if (sName.indexOf('电流基线时长') === 0) {
+                try { chart.series[s].remove(false); } catch(e) {}
+            }
+            s = s - 1;
+        }
+        try { chart.redraw(); } catch(e) {}
     }
 }
 

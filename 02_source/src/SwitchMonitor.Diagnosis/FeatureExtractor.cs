@@ -8,11 +8,15 @@ namespace SwitchMonitor.Diagnosis
     /// <summary>
     /// 功率曲线特征提取器 + 五阶段分割。
     /// 算法严格按 CONTEXT.md §3 规格实现，与 Python diag_reference_check.py 一致。
+    ///
+    /// 五阶段：①启动尖峰(SpikePeak) → ②解锁段(UnlockMean) → ③转换段(ConvMean/ConvMax)
+    ///        → ④锁闭段(LockMean) → ⑤缓放段(TailMean)
+    /// 阶段分割位置：spikeIndex → +2→+14 → +20→activeEnd-40 → activeEnd-40→-22 → activeEnd-22→-2
     /// </summary>
     public static class FeatureExtractor
     {
         /// <summary>
-        /// 核心入口：从功率采样值序列（kW，0.04s/点）提取 12 维特征。
+        /// 核心入口：从功率采样值序列（kW，0.04s/点）提取 13 维特征。
         /// </summary>
         public static CurveFeatures Extract(IList<double> values)
         {
@@ -119,6 +123,27 @@ namespace SwitchMonitor.Diagnosis
                 f.StepRatio = 1.0;
             }
 
+            // ④ 锁闭段：[activeEnd-40, activeEnd-22) 共 18 点；activeEnd ≤ 50 时 lockMean = 0
+            //    退化策略：若 activeEnd-40 < 0，退化为 [0, activeEnd-22)
+            if (activeEnd > 50)
+            {
+                int lockStart = activeEnd - 40;
+                int lockEnd = activeEnd - 22;
+                if (lockStart < 0) lockStart = 0;
+                if (lockStart < lockEnd)
+                {
+                    f.LockMean = Math.Round(SegmentMean(values, lockStart, lockEnd), 3);
+                }
+                else
+                {
+                    f.LockMean = 0.0;
+                }
+            }
+            else
+            {
+                f.LockMean = 0.0;
+            }
+
             // ⑤ 缓放尾段：[activeEnd-22, activeEnd-2) 共 20 点；activeEnd ≤ 30 时 tailMean = 0
             if (activeEnd > 30)
             {
@@ -164,7 +189,9 @@ namespace SwitchMonitor.Diagnosis
                     values.Add(0.0);
                 }
             }
-            return Extract(values);
+            var features = Extract(values);
+            features.Direction = evt.Direction;
+            return features;
         }
 
         /// <summary>

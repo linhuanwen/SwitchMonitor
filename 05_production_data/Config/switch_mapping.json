@@ -104,16 +104,18 @@
     "184": {
       "configName": "537GH",
       "switchId": null,
-      "description": "待确认-H/B含义及对应道岔"
+      "description": "H/B含义待现场确认 — DB=定位表示/FB=反位表示 (已从digit.ini确认), GH=H侧表示继电器, 待确认H侧对应定位还是反位"
     },
     "185": {
       "configName": "537GB",
       "switchId": null,
-      "description": "待确认"
+      "description": "B侧表示继电器, 与H互斥"
     }
   },
   "directionMapping": {
-    "H": { "meaning": "待确认", "note": "可能是定位或反位其中之一" },
-    "B": { "meaning": "待确认", "note": "与H互斥" }
+    "DB": { "meaning": "定位表示", "note": "已从 digit.ini 确认 — DB 继电器吸起=道岔在定位" },
+    "FB": { "meaning": "反位表示", "note": "已从 digit.ini 确认 — FB 继电器吸起=道岔在反位" },
+    "H": { "meaning": "待确认", "note": "可能是定位或反位其中之一, 对应 GH 后缀" },
+    "B": { "meaning": "待确认", "note": "与H互斥, 对应 GB 后缀" }
   }
 }

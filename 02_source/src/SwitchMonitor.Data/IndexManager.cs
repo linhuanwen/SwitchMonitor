@@ -15,6 +15,9 @@ namespace SwitchMonitor.Data
         private readonly string _parsedDataDir;
         private readonly JavaScriptSerializer _serializer;
         private readonly object _lock = new object();
+
+        /// <summary>parsed_data 根目录路径（供 DiagnosisRunner 等外部调用方使用）</summary>
+        public string ParsedDataDir { get { return _parsedDataDir; } }
         private Dictionary<string, Dictionary<string, List<long>>> _index;
 
         public IndexManager(string parsedDataDir)
@@ -178,6 +181,8 @@ namespace SwitchMonitor.Data
         /// <summary>
         /// 保存某天的诊断结果到 .diag.json 并更新 alarms_index.json。
         /// 与 SaveDayData 配套使用：先写日数据，再写诊断结果。
+        /// 写入顺序：alarms_index.json（小文件、加锁）先写 → .diag.json 后写。
+        /// 若 alarms_index 更新失败，.diag.json 不会写入，保持两者一致。
         /// </summary>
         public void SaveDayDiagnosis(string switchId, string date, List<EventDiagnosis> diagnoses)
         {
@@ -186,13 +191,13 @@ namespace SwitchMonitor.Data
             if (!Directory.Exists(dir))
                 Directory.CreateDirectory(dir);
 
-            // 写入 .diag.json（与 {date}.json 并列）
+            // 先更新 alarms_index.json（小文件、加锁写入，失败则中断，不污染 .diag.json）
+            UpdateAlarmsIndex(switchId, date, diagnoses);
+
+            // 再写 .diag.json（与 {date}.json 并列）
             string filePath = Path.Combine(dir, date + ".diag.json");
             string json = _serializer.Serialize(diagnoses);
             File.WriteAllText(filePath, json, Encoding.UTF8);
-
-            // 更新 alarms_index.json（与 index.json 在同一锁内）
-            UpdateAlarmsIndex(switchId, date, diagnoses);
         }
 
         /// <summary>

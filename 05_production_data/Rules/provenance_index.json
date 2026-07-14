@@ -1,0 +1,138 @@
+{
+  "_schema": "全局规则溯源索引 — 记录每条诊断规则的知识来源和生命周期。",
+  "_description": "M2生产规则和M3候选规则均可通过此索引追溯到原始知识来源。",
+  "_updated": "2026-07-13",
+
+  "rules": {
+    "R0": {
+      "displayName": "采集异常",
+      "source": "data-processing-fundamentals",
+      "type": "domain-expert",
+      "rationale": "峰值≤0.01kW 或采样数为0，必然为采集/解析故障，无需基线",
+      "promotedFrom": null,
+      "promotedDate": null
+    },
+    "R1": {
+      "displayName": "动作超时/未完成",
+      "source": "switch-machine-protection-logic",
+      "type": "domain-expert",
+      "rationale": "打满录制窗口(≥780点)或超参考时长+3.0s，对应卡阻/空转/异物阻碍",
+      "promotedFrom": null,
+      "promotedDate": null
+    },
+    "R2": {
+      "displayName": "动作夭折",
+      "source": "switch-machine-protection-logic",
+      "type": "domain-expert",
+      "rationale": "时长<参考60%，启动后随即断电，对应未解锁或保护切断",
+      "promotedFrom": null,
+      "promotedDate": null
+    },
+    "R3": {
+      "displayName": "动作时长偏差",
+      "source": "statistical-analysis",
+      "type": "domain-expert",
+      "rationale": "正常曲线时长P5-P95离散仅±1%，|dur−refDur|>0.5s即为异常",
+      "promotedFrom": null,
+      "promotedDate": null
+    },
+    "R4": {
+      "displayName": "启动峰值偏高",
+      "source": "hydraulic-pump-characteristics",
+      "type": "domain-expert",
+      "rationale": "油泵启动峰值与初始负载成正比，>1.3×表示启动阻力异常",
+      "promotedFrom": null,
+      "promotedDate": null
+    },
+    "R5": {
+      "displayName": "转换段功率偏高",
+      "source": "hydraulic-load-resistance",
+      "type": "domain-expert",
+      "rationale": "液压缸推动道岔的平均负载>1.3×参考，对应滑床板缺油/异物",
+      "promotedFrom": null,
+      "promotedDate": null
+    },
+    "R6": {
+      "displayName": "转换段台阶突变",
+      "source": "mid-conversion-obstruction",
+      "type": "domain-expert",
+      "rationale": "前后1/3段均值比>1.5或<0.67，对应中途受阻或空转",
+      "promotedFrom": null,
+      "promotedDate": null
+    },
+    "R7": {
+      "displayName": "解锁段偏高",
+      "source": "switch-close-adhesion",
+      "type": "domain-expert",
+      "rationale": "解锁段均值>1.3×参考，对应密贴过紧/卡缺口",
+      "promotedFrom": null,
+      "promotedDate": null
+    },
+    "R8": {
+      "displayName": "缓放段异常",
+      "source": "locking-indicator-circuit",
+      "type": "domain-expert",
+      "rationale": "缓放段偏离参考±30%，对应锁闭/开闭器异常",
+      "promotedFrom": null,
+      "promotedDate": null
+    },
+    "R9": {
+      "displayName": "转换段瞬态阻力",
+      "source": "sliding-window-local-mean",
+      "type": "domain-expert",
+      "rationale": "滑动窗口(20点/0.8s)扫描转换段，局部均值>整段基线1.5×说明存在瞬时阻力点。ZYJ7液压系统有足够余量克服该阻力，整段均值不会超阈值——这正是隐性问题的典型特征。",
+      "promotedFrom": null,
+      "promotedDate": null
+    },
+    "R10": {
+      "displayName": "转换段稳定性异常",
+      "source": "hydraulic-pressure-stability",
+      "type": "domain-expert",
+      "rationale": "去趋势后残差标准差/整段均值>参考2×，说明液压系统压力不稳（气泡/密封老化/油泵磨损）",
+      "promotedFrom": null,
+      "promotedDate": null
+    },
+    "R11": {
+      "displayName": "解锁/转换比例失调",
+      "source": "inter-segment-ratio-analysis",
+      "type": "domain-expert",
+      "rationale": "解锁段/转换段比值偏离参考>0.2，可早于各段独立阈值捕获异常。比值偏大→密贴过紧，偏小→滑床板缺油（转换段上升快于解锁段）",
+      "promotedFrom": null,
+      "promotedDate": null
+    },
+    "R12": {
+      "displayName": "尖峰半高宽异常",
+      "source": "pump-pressure-buildup",
+      "type": "domain-expert",
+      "rationale": "启动尖峰的半高宽反映油泵建压速度，偏离参考±40%说明油泵启动特性变化",
+      "promotedFrom": null,
+      "promotedDate": null
+    },
+    "R13": {
+      "displayName": "尖峰回落不足",
+      "source": "relief-valve-response",
+      "type": "domain-expert",
+      "rationale": "尖峰后功率回落幅度不足(SpikeDropRatio<0.7)，说明溢流阀响应迟缓或液压管路存在节流",
+      "promotedFrom": null,
+      "promotedDate": null
+    },
+    "T1": {
+      "displayName": "渐变劣化趋势",
+      "source": "equipment-degradation-pattern",
+      "type": "domain-expert",
+      "rationale": "7天滑动中位数单调不减且超基线×(1+trendRatio)，检测以周为单位的缓慢劣化",
+      "promotedFrom": null,
+      "promotedDate": null
+    },
+    "P1": {
+      "displayName": "逐点形态偏离",
+      "source": "residual-area-analysis",
+      "type": "domain-expert",
+      "rationale": "与参考曲线逐点对齐后残差面积比>0.25，捕获整体形态异常但各段均未超阈值的曲线",
+      "promotedFrom": null,
+      "promotedDate": null
+    }
+  },
+
+  "promotionLog": []
+}

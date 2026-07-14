@@ -299,7 +299,7 @@ public interface IDiagnosisEngine
 - 块头: 42 字节（4 字节 timestamp LE uint32 + 4 字节 flags + 2 字节 sample_rate + 2 字节 sample_count + …）
 - 采样值: 42 字节头之后，每 4 字节一个 float32 LE
 - 验证条件: timestamp 在合理范围内（1,500,000,000 ~ 2,000,000,000）、sample_rate == 25、10 < sample_count < 2000
-- flags 用于区分相别（如 16777216 = 0x01000000 = phase 1，33554432 = 0x02000000 = phase 2）
+- flags 用于区分相别（byte3 编码：文件索引+offset，offset 0=A相/1=B相/2=C相；功率文件 byte3=文件索引+3）
 
 ### Digit 二进制解析规格
 

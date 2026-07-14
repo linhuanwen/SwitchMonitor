@@ -206,14 +206,12 @@ namespace SwitchMonitor.Data
         /// </summary>
         private static string GetPhaseLabel(uint flags, char fallbackLabel)
         {
-            // flags: 16777216 = 0x01000000 = phase 1
-            //        33554432 = 0x02000000 = phase 2
-            //        50331648 = 0x03000000 = phase 3
+            // flags byte3 编码: 文件索引+offset（offset 0=A相, 1=B相, 2=C相, 依据 DC.ini）
             switch (flags)
             {
-                case 16777216: return "A";
-                case 33554432: return "B";
-                case 50331648: return "C";
+                case 16777216: return "B";  // byte3=1 → offset=1 → B相
+                case 33554432: return "C";  // byte3=2 → offset=2 → C相
+                case 50331648: return "A";  // byte3=3 → offset=0 → A相
                 default:
                     // 使用回退标签（A, B, C, ...）
                     return fallbackLabel.ToString();

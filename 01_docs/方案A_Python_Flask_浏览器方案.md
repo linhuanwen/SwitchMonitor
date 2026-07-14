@@ -87,7 +87,7 @@ d:\Vibe coding\04 DCjiance\SwitchMonitor\
 .dat 文件二进制头部: "CSM2010" (8字节magic)
 CSV 导出后格式（已有素材）:
   timestamp, datetime, phase, s0, s1, ..., s789
-  - phase: 16777216(A相), 33554432(B相), 50332416(C相), 0(功率)
+  - phase: 由文件索引确定相别（byte3=文件索引+offset，offset 0=A相/1=B相/2=C相），功率文件=文件索引+3
   - s0~s789: 790个采样点，约0.04s/点，覆盖0~31.6秒
   - 电流文件: 1000事件/3相 × 3 = 3000行
   - 功率文件: 3000事件 × 1相 = 3000行

@@ -127,13 +127,13 @@ namespace SwitchMonitor.Tests
                     }
                 };
 
-                im.SaveDayDiagnosis("4-1", "2026-01-29", diagnoses);
+                im.SaveDayDiagnosis("4-J", "2026-01-29", diagnoses);
 
                 var index = im.LoadAlarmsIndex();
-                TestRunner.AssertTrue(index.ContainsKey("4-1"), "含 4-1");
-                TestRunner.AssertTrue(index["4-1"].ContainsKey("2026-01-29"), "含日期");
+                TestRunner.AssertTrue(index.ContainsKey("4-J"), "含 4-1");
+                TestRunner.AssertTrue(index["4-J"].ContainsKey("2026-01-29"), "含日期");
 
-                var counts = index["4-1"]["2026-01-29"];
+                var counts = index["4-J"]["2026-01-29"];
                 // 预警=1, 报警=0, 故障=2 → 非正常总计=3
                 TestRunner.AssertEqual(1, counts["预警"], "预警=1");
                 TestRunner.AssertEqual(0, counts["报警"], "报警=0");
@@ -210,7 +210,7 @@ namespace SwitchMonitor.Tests
             // 无诊断数据时的表示：diagnosis 为 null
             var chartData = new
             {
-                switchId = "1-1",
+                switchId = "1-J",
                 currentEvent = new { timestamp = 1 },
                 diagnosis = (object)null
             };
@@ -235,8 +235,8 @@ namespace SwitchMonitor.Tests
 
             var chartData = new
             {
-                switchId = "4-1",
-                switchLabel = "4-1",
+                switchId = "4-J",
+                switchLabel = "4-J",
                 currentEvent = new { timestamp = 1769618597L, direction = "定位↔反位", duration = 31.36 },
                 prevEvent = (object)null,
                 thresholdCurrent = 2.0,
@@ -287,15 +287,15 @@ namespace SwitchMonitor.Tests
                         SampleCount = 2, SampleInterval = 0.04, Direction = "定位↔反位", Duration = 11.80 }
                 };
 
-                im.SaveDayData("4-1", "2026-01-29", events1);
-                im.SaveDayData("4-1", "2026-01-28", events2);
+                im.SaveDayData("4-J", "2026-01-29", events1);
+                im.SaveDayData("4-J", "2026-01-28", events2);
 
                 // 验证 rerun 遍历了全部日期
                 int rerunCount = 0;
-                var dates = im.GetDates("4-1");
+                var dates = im.GetDates("4-J");
                 foreach (var date in dates)
                 {
-                    var dayEvents = im.LoadDayData("4-1", date);
+                    var dayEvents = im.LoadDayData("4-J", date);
                     // 模拟诊断（实际 RerunAll 会调用完整引擎）
                     var diagnoses = new List<EventDiagnosis>();
                     foreach (var evt in dayEvents)
@@ -307,7 +307,7 @@ namespace SwitchMonitor.Tests
                             Results = new List<DiagnosisItem>()
                         });
                     }
-                    im.SaveDayDiagnosis("4-1", date, diagnoses);
+                    im.SaveDayDiagnosis("4-J", date, diagnoses);
                     rerunCount += dayEvents.Count;
                 }
 
@@ -315,8 +315,8 @@ namespace SwitchMonitor.Tests
                 TestRunner.AssertEqual(3, rerunCount, "共重跑3个事件");
 
                 // 验证 .diag.json 已生成
-                string diag1 = Path.Combine(parsedDir, "4-1", "2026-01-29.diag.json");
-                string diag2 = Path.Combine(parsedDir, "4-1", "2026-01-28.diag.json");
+                string diag1 = Path.Combine(parsedDir, "4-J", "2026-01-29.diag.json");
+                string diag2 = Path.Combine(parsedDir, "4-J", "2026-01-28.diag.json");
                 TestRunner.AssertFileExists(diag1, "day1 .diag.json");
                 TestRunner.AssertFileExists(diag2, "day2 .diag.json");
 

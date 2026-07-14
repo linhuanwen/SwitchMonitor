@@ -81,6 +81,7 @@ namespace SwitchMonitor.Diagnosis
                 { "R6", new RuleThreshold { enabled = true, level = "报警", maxStepRatio = 1.5, minStepRatio = 0.67 } },
                 { "R7", new RuleThreshold { enabled = true, level = "预警", overRefRatio = 1.3 } },
                 { "R8", new RuleThreshold { enabled = true, level = "预警", deviationRatio = 0.3 } },
+                { "R9", new RuleThreshold { enabled = true, level = "预警", deviationRatio = 0.3 } },
                 { "T1", new RuleThreshold { enabled = true, level = "预警", trendRatio = 0.15, trendDays = 7 } },
                 { "P1", new RuleThreshold { enabled = true, level = "预警", areaDiffRatioThreshold = 0.25, maxAbsDevRatio = 1.0 } }
             };

@@ -1,0 +1,42 @@
+{
+  "_schema": "M3文献知识库索引 — 记录所有已录入的论文/标准条目及其规则派生状态。",
+  "_updated": "2026-07-14",
+
+  "summary": {
+    "totalEntries": 2,
+    "totalKnowledgePoints": 12,
+    "totalCandidateRules": 1,
+    "promotedToM2": 3,
+    "pendingValidation": 1
+  },
+
+  "entries": [
+    {
+      "id": "KB001",
+      "title": "基于多通道输入和1DCNN-LSTM的道岔转辙机故障诊断",
+      "authors": ["付雅婷"],
+      "year": "202X",
+      "equipment": "S700K",
+      "signalType": "功率曲线",
+      "status": "draft",
+      "knowledgePointIds": ["KP1", "KP2", "KP3", "KP4", "KP5", "KP6"],
+      "promotedRules": ["R9", "R10", "D1-FeatureExtractor"],
+      "candidateRules": [],
+      "file": "entries/KB001_emd_1dcnn_lstm.md"
+    },
+    {
+      "id": "KB002",
+      "title": "ZYJ7道岔表示二极管击穿时的动作电流曲线特征",
+      "authors": ["铁路信号资料共享交流"],
+      "year": 2011,
+      "equipment": "ZYJ7",
+      "signalType": "电流曲线（可映射到功率曲线）",
+      "status": "draft",
+      "knowledgePointIds": ["KP1", "KP2", "KP3", "KP4", "KP5"],
+      "promotedRules": [],
+      "candidateRules": ["CR001"],
+      "file": "entries/KB002_diode_breakdown_tail_platform.md",
+      "importMethod": "Kimi多模态图片识别"
+    }
+  ]
+}
