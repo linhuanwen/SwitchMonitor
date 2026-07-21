@@ -13,7 +13,9 @@ namespace SwitchMonitor.Diagnosis
     {
         private ThresholdStore _thresholds;
         private BaselineStore _baselines;
+        private Dictionary<string, StandardCurve> _standardCurves;
         private string _rulesDir;
+        private string _baselinesDir;
         private string _parsedDataDir;
 
         // 已告警"无基线"的道岔集合，避免重复日志刷屏
@@ -22,26 +24,157 @@ namespace SwitchMonitor.Diagnosis
         // T1 trend results cache: switchId -> 最新趋势结果（避免同一事件重复触发）
         private readonly Dictionary<string, DiagnosisResult> _t1Cache = new Dictionary<string, DiagnosisResult>();
 
+        // D9: 近邻正常事件特征缓存 — switchId → 最近 N 条正常事件的特征（最新的在前）
+        private readonly Dictionary<string, List<CurveFeatures>> _recentNormalCache = new Dictionary<string, List<CurveFeatures>>();
+        private const int MaxRecentNormalCache = 30; // 最多保留 30 条（覆盖约 3 天）
+
         /// <summary>
-        /// 初始化引擎：加载 rulesDir 目录下的 thresholds.json + baselines.json。
+        /// 初始化引擎：加载 rulesDir 目录下的 thresholds.json（全局规则），
+        /// 以及 baselinesDir 目录下的 baselines.json + standard_curves/（按站点隔离）。
+        /// baselinesDir 为 null 时回退到 rulesDir（向后兼容）。
+        /// 站点目录下基线文件缺失时，自动从全局 rulesDir 迁移（一次性升级兼容）。
         /// 文件缺失/损坏 → 使用内置默认阈值 + 空基线，并 Logger.Warning。
         /// </summary>
-        public void Initialize(string rulesDir)
+        public void Initialize(string rulesDir, string baselinesDir = null)
         {
             _rulesDir = rulesDir;
+            _baselinesDir = baselinesDir ?? rulesDir;
             string thresholdsPath = Path.Combine(rulesDir, "thresholds.json");
-            string baselinesPath = Path.Combine(rulesDir, "baselines.json");
+
+            // 迁移：站点基线目录下无 baselines.json 时，尝试从全局 rulesDir 复制
+            MigrateBaselinesIfNeeded(rulesDir, _baselinesDir);
+
+            string baselinesPath = Path.Combine(_baselinesDir, "baselines.json");
 
             _thresholds = ThresholdStore.Load(thresholdsPath);
             _baselines = BaselineStore.Load(baselinesPath);
+
+            // 加载标准曲线（优先于参考曲线用于 P1 对比）
+            string standardCurveDir = Path.Combine(_baselinesDir, "standard_curves");
+            _standardCurves = StandardCurveStore.LoadAll(standardCurveDir);
 
             _warnedNoBaseline.Clear();
             _t1Cache.Clear();
 
             int ruleCount = _thresholds.rules != null ? _thresholds.rules.Count : 0;
             int baselineCount = _baselines.Switches != null ? _baselines.Switches.Count : 0;
-            Logger.Info(string.Format("DiagnosisEngine 初始化完成: {0} 条规则, {1} 台道岔基线",
-                ruleCount, baselineCount));
+            int scCount = _standardCurves != null ? _standardCurves.Count : 0;
+            Logger.Info(string.Format("DiagnosisEngine 初始化完成: {0} 条规则, {1} 台道岔基线, {2} 条标准曲线",
+                ruleCount, baselineCount, scCount));
+        }
+
+        /// <summary>
+        /// 显式实现 IDiagnosisEngine.Initialize(string)，满足接口契约。
+        /// 调用双参数版本，baselinesDir 回退到 rulesDir。
+        /// </summary>
+        void IDiagnosisEngine.Initialize(string rulesDir)
+        {
+            Initialize(rulesDir, null);
+        }
+
+        /// <summary>
+        /// 热切换基线目录：重新加载 baselines.json + standard_curves/，不重读 thresholds.json。
+        /// 用于用户在站点间切换时即时生效，无需重建引擎实例。
+        /// </summary>
+        public void ReloadBaselines(string baselinesDir)
+        {
+            if (string.IsNullOrEmpty(baselinesDir))
+                return;
+
+            _baselinesDir = baselinesDir;
+
+            // 迁移：新站点目录下无 baselines.json 时，尝试从全局 rulesDir 复制
+            MigrateBaselinesIfNeeded(_rulesDir, baselinesDir);
+
+            string baselinesPath = Path.Combine(baselinesDir, "baselines.json");
+            string standardCurveDir = Path.Combine(baselinesDir, "standard_curves");
+
+            _baselines = BaselineStore.Load(baselinesPath);
+            _standardCurves = StandardCurveStore.LoadAll(standardCurveDir);
+
+            // 清空告警和缓存（换了站点，之前的缓存不再有效）
+            _warnedNoBaseline.Clear();
+            _t1Cache.Clear();
+            _recentNormalCache.Clear();
+
+            int baselineCount = _baselines.Switches != null ? _baselines.Switches.Count : 0;
+            int scCount = _standardCurves != null ? _standardCurves.Count : 0;
+            Logger.Info(string.Format("DiagnosisEngine 基线已重载: {0} 台道岔基线, {1} 条标准曲线 (目录: {2})",
+                baselineCount, scCount, baselinesDir));
+        }
+
+        /// <summary>
+        /// 一次性迁移：站点基线目录下无 baselines.json 时，从全局 rulesDir 复制。
+        /// 升级兼容——避免用户手动到每个站点重建基线。
+        /// 同时迁移 standard_curves/ 下所有文件。
+        /// </summary>
+        private static void MigrateBaselinesIfNeeded(string rulesDir, string baselinesDir)
+        {
+            if (string.IsNullOrEmpty(rulesDir) || string.IsNullOrEmpty(baselinesDir))
+                return;
+            // rulesDir 和 baselinesDir 相同时无需迁移（未启用站点隔离）
+            if (string.Equals(rulesDir, baselinesDir, StringComparison.OrdinalIgnoreCase))
+                return;
+
+            try
+            {
+                // ── 迁移 baselines.json ──
+                string stationBaselinesPath = Path.Combine(baselinesDir, "baselines.json");
+                string globalBaselinesPath = Path.Combine(rulesDir, "baselines.json");
+                if (!File.Exists(stationBaselinesPath) && File.Exists(globalBaselinesPath))
+                {
+                    string dir = Path.GetDirectoryName(stationBaselinesPath);
+                    if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                        Directory.CreateDirectory(dir);
+                    File.Copy(globalBaselinesPath, stationBaselinesPath, overwrite: false);
+                    Logger.Info(string.Format("基线已自动迁移: {0} → {1}",
+                        globalBaselinesPath, stationBaselinesPath));
+                }
+
+                // ── 迁移 current_baselines.json ──
+                string stationCurrentPath = Path.Combine(baselinesDir, "current_baselines.json");
+                string globalCurrentPath = Path.Combine(rulesDir, "current_baselines.json");
+                if (!File.Exists(stationCurrentPath) && File.Exists(globalCurrentPath))
+                {
+                    File.Copy(globalCurrentPath, stationCurrentPath, overwrite: false);
+                    Logger.Info(string.Format("电流基线已自动迁移: {0} → {1}",
+                        globalCurrentPath, stationCurrentPath));
+                }
+
+                // ── 迁移 standard_curves/ ──
+                string stationScDir = Path.Combine(baselinesDir, "standard_curves");
+                string globalScDir = Path.Combine(rulesDir, "standard_curves");
+                if (!Directory.Exists(stationScDir) && Directory.Exists(globalScDir))
+                {
+                    // 复制整个目录（递归）
+                    CopyDirectoryRecursive(globalScDir, stationScDir);
+                    Logger.Info(string.Format("标准曲线已自动迁移: {0} → {1}",
+                        globalScDir, stationScDir));
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning("基线迁移失败（不影响功能，可手动重建）: " + ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// 递归复制目录（用于 standard_curves 迁移）
+        /// </summary>
+        private static void CopyDirectoryRecursive(string sourceDir, string destDir)
+        {
+            if (!Directory.Exists(destDir))
+                Directory.CreateDirectory(destDir);
+            foreach (string file in Directory.GetFiles(sourceDir))
+            {
+                string dest = Path.Combine(destDir, Path.GetFileName(file));
+                File.Copy(file, dest, overwrite: false);
+            }
+            foreach (string subDir in Directory.GetDirectories(sourceDir))
+            {
+                string destSub = Path.Combine(destDir, Path.GetFileName(subDir));
+                CopyDirectoryRecursive(subDir, destSub);
+            }
         }
 
         /// <summary>
@@ -506,30 +639,58 @@ namespace SwitchMonitor.Diagnosis
 
             try
             {
-                // 加载该道岔的参考曲线
-                string refDir = Path.Combine(_rulesDir, "reference_curves");
-                string refPath = Path.Combine(refDir, switchId + ".json");
-                var refCurve = ReferenceCurveStore.Load(refPath);
-                if (refCurve == null || refCurve.Values == null || refCurve.Values.Count == 0)
-                    return;
-
-                // 需要当前曲线的功率采样值来做逐点对比
-                // FeatureExtractor 不保存原始值序列，我们需要从 SwitchEvent 获取
-                // 这里增加一个机制：通过 CurveFeatures 携带原始值引用
-                // 如果原始值不可用，跳过 P1 对比
                 var rawValues = f.RawValues;
                 if (rawValues == null || rawValues.Count == 0)
                     return;
 
-                int currentSpikeIndex = f.SpikeIndex;
+                List<double> templateValues;
+                int templateAlignIndex;
+                string templateSource;
+
+                // 优先使用标准曲线（统计校准 + 形态保真），叠加近邻漂移
+                // 按方向精确匹配
+                string scKey = BaselineStore.MakeKey(switchId, f.Direction);
+                if (_standardCurves != null && _standardCurves.TryGetValue(scKey, out var sc)
+                    && sc.Values != null && sc.Values.Count > 0)
+                {
+                    // D9: 尝试近邻漂移调整
+                    StandardCurve adjusted = TryApplyDrift(switchId, sc);
+                    if (adjusted != null)
+                    {
+                        templateValues = adjusted.Values;
+                        templateAlignIndex = adjusted.AlignIndex;
+                        templateSource = "standard+drift";
+                    }
+                    else
+                    {
+                        templateValues = sc.Values;
+                        templateAlignIndex = sc.AlignIndex;
+                        templateSource = "standard";
+                    }
+                }
+                else
+                {
+                    // 回退到人工参考曲线（按方向匹配）
+                    string refFileName = ReferenceCurveStore.MakeFileName(switchId, f.Direction);
+                    string refPath = Path.Combine(_rulesDir, "reference_curves", refFileName);
+                    var refCurve = ReferenceCurveStore.Load(refPath);
+                    if (refCurve == null || refCurve.Values == null || refCurve.Values.Count == 0)
+                        return;
+
+                    templateValues = refCurve.Values;
+                    templateAlignIndex = refCurve.AlignIndex;
+                    templateSource = "reference";
+                }
 
                 var result = ProfileComparer.CompareP1WithThreshold(
-                    rawValues, refCurve.Values,
-                    currentSpikeIndex, refCurve.AlignIndex,
+                    rawValues, templateValues,
+                    f.SpikeIndex, templateAlignIndex,
                     b.RefConvMean, t);
 
                 if (result != null)
                 {
+                    // 标注使用的模板类型
+                    result.Description += string.Format("（模板: {0}）", templateSource);
                     results.Add(result);
                 }
             }
@@ -537,6 +698,107 @@ namespace SwitchMonitor.Diagnosis
             {
                 Logger.Warning("P1 形态对比失败 switchId=" + switchId + ": " + ex.Message);
             }
+        }
+
+        // ── D9: Drift 辅助方法 ──
+
+        /// <summary>
+        /// 尝试对标准曲线应用近邻漂移，生成当日温度调整版 S'。
+        /// 近邻不足 20 条 → 返回 null（调用方回退到原始标准曲线）。
+        /// </summary>
+        private StandardCurve TryApplyDrift(string switchId, StandardCurve sc)
+        {
+            List<CurveFeatures> neighbors;
+            if (!_recentNormalCache.TryGetValue(switchId, out neighbors) || neighbors == null)
+                return null;
+
+            if (neighbors.Count < DriftEstimator.DefaultNeighborCount)
+                return null;
+
+            try
+            {
+                var drift = DriftEstimator.Estimate(sc, neighbors, DriftEstimator.DefaultNeighborCount);
+
+                // 如果所有 drift 都为 1.0（刚好等于标准曲线），跳过调整
+                if (Math.Abs(drift.DriftSpike - 1.0) < 0.001 &&
+                    Math.Abs(drift.DriftUnlock - 1.0) < 0.001 &&
+                    Math.Abs(drift.DriftConv - 1.0) < 0.001 &&
+                    Math.Abs(drift.DriftLock - 1.0) < 0.001 &&
+                    Math.Abs(drift.DriftTail - 1.0) < 0.001)
+                    return null;
+
+                var adjusted = DriftEstimator.ApplyDrift(sc, drift);
+                return adjusted;
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning("Drift 调整失败 switchId=" + switchId + ": " + ex.Message);
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// 热更新内存中的标准曲线（用于融合权重变更后即时生效，无需重建引擎）。
+        /// </summary>
+        /// <param name="switchId">道岔标识</param>
+        /// <param name="direction">动作方向</param>
+        /// <param name="curve">新的标准曲线（null 表示移除）</param>
+        public void UpdateStandardCurve(string switchId, string direction, StandardCurve curve)
+        {
+            if (_standardCurves == null)
+                _standardCurves = new Dictionary<string, StandardCurve>();
+            string key = BaselineStore.MakeKey(switchId, direction);
+            if (curve != null)
+                _standardCurves[key] = curve;
+            else
+                _standardCurves.Remove(key);
+        }
+
+        /// <summary>
+        /// 将当前正常事件的特征加入近邻缓存。
+        /// 在 Diagnose() 返回空结果（正常）后由调用方调用。
+        /// 自动维护最多 MaxRecentNormalCache 条，保持时间顺序。
+        /// </summary>
+        public void CacheNormalFeatures(string switchId, CurveFeatures features)
+        {
+            if (features == null || !features.IsValid)
+                return;
+
+            if (!_recentNormalCache.ContainsKey(switchId))
+                _recentNormalCache[switchId] = new List<CurveFeatures>();
+
+            var cache = _recentNormalCache[switchId];
+
+            // 插入到最前面（最新的在前）
+            cache.Insert(0, new CurveFeatures
+            {
+                IsValid = true,
+                SpikePeak = features.SpikePeak,
+                SpikeIndex = features.SpikeIndex,
+                ActiveEnd = features.ActiveEnd,
+                DurationSec = features.DurationSec,
+                UnlockMean = features.UnlockMean,
+                ConvMean = features.ConvMean,
+                LockMean = features.LockMean,
+                TailMean = features.TailMean,
+                SampleCount = features.SampleCount,
+                Direction = features.Direction
+            });
+
+            // 修剪到最大长度
+            while (cache.Count > MaxRecentNormalCache)
+                cache.RemoveAt(cache.Count - 1);
+        }
+
+        /// <summary>
+        /// 获取指定道岔的近邻缓存条目数（用于诊断/测试）。
+        /// </summary>
+        public int GetRecentNormalCount(string switchId)
+        {
+            List<CurveFeatures> cache;
+            if (_recentNormalCache.TryGetValue(switchId, out cache) && cache != null)
+                return cache.Count;
+            return 0;
         }
     }
 }

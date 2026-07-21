@@ -1,4 +1,4 @@
-# SwitchMonitor — 道岔监测系统 V2.0
+# SwitchMonitor — 道岔监测系统 V3.0
 
 铁路信号集中监测（CSM）道岔动作曲线分析与诊断工具。从 CSM 站机软件生成的二进制 `.dat` 文件中解析道岔动作电流/功率曲线，提供曲线展示、方向判定、参考基线管理和规则驱动的多级诊断。
 
@@ -259,4 +259,4 @@ SwitchMonitor.DiagTool.exe dryrun ../../../05_production_data/parsed_data ../../
 
 ---
 
-<p align="center"><b>SwitchMonitor V2.0</b> — 三水北站道岔监测 · 2026-07</p>
+<p align="center"><b>SwitchMonitor V3.0</b> — 道岔监测系统 · 2026-07</p>

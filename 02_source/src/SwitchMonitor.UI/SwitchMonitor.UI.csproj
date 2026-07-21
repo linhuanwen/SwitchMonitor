@@ -12,6 +12,8 @@
   <ItemGroup>
     <ProjectReference Include="..\SwitchMonitor.Data\SwitchMonitor.Data.csproj" />
     <ProjectReference Include="..\SwitchMonitor.Diagnosis\SwitchMonitor.Diagnosis.csproj" />
+    <ProjectReference Include="..\SwitchMonitor.Station\SwitchMonitor.Station.csproj" />
+    <ProjectReference Include="..\SwitchMonitor.Network\SwitchMonitor.Network.csproj" />
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="Html\sidebar.html" />

@@ -18,14 +18,16 @@ from datetime import datetime
 
 
 # Regex to match digit.ini entries like:
-#   15501=1-J-1DQJ           ,     15500,        9,    1,    9
-#   15586=4-X-DB             ,     15585,        8,    0,    9
-#   15587=4-X-FB             ,     15586,       88,    0,    9
+#   15501=1-J-1DQJ           ,     15500,        9,    1,    9   (ZYJ7)
+#   15586=4-X-DB             ,     15585,        8,    0,    9   (ZYJ7)
+#   201=1-J1-DB              ,                          ...  (ZDJ9)
+#   213=1-J2-1DQJ            ,                          ...  (ZDJ9)
+#   237=1-X2-FB              ,                          ...  (ZDJ9)
 #
 # Groups: point_id, switch_name, relay_type
 _LINE_PATTERN = re.compile(
     r'^(\d+)\s*=\s*'          # point_id
-    r'(\d+-[JX])-'            # switch_name (e.g. "4-X", "1-J")
+    r'(\d+-[JX]\d?)-'         # switch_name: "4-X" (ZYJ7) or "4-X2" (ZDJ9)
     r'(1DQJ|DB|FB)'           # relay_type
     r'\s*,'                    # rest of line after name
 )

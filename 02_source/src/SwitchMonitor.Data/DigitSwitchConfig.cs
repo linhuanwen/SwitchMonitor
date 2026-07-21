@@ -68,8 +68,9 @@ namespace SwitchMonitor.Data
 
             // 正则: PointID=SwitchName-Type, ...
             // 例: 15586=4-X-DB             ,     15585,        8,    0,    9
+            // 支持 ZYJ7 (N-J/N-X) 和 ZDJ9 (N-J1/N-J2/N-X1/N-X2) 两种命名
             var regex = new Regex(
-                @"^(\d+)\s*=\s*(\d+-[JX])-(1DQJ|DB|FB)\s*,",
+                @"^(\d+)\s*=\s*(\d+-[JX]\d?)-(1DQJ|DB|FB)\s*,",
                 RegexOptions.Compiled);
 
             using (var reader = new StreamReader(iniPath, Encoding.GetEncoding("GBK")))

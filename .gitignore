@@ -23,15 +23,38 @@ packages/
 *.nupkg
 
 # --- 原始数据 (过大，不适合直接入 Git) ---
-# 如需版本管理，请使用 Git LFS
 03_raw_data/
 
 # --- 运行时日志 ---
 07_logs/
+05_production_data/logs/
 
-# --- 编译好的部署包 (源码可重新编译) ---
-# 仅保留部署文档，排除二进制
-06_deploy/build_out/
+# --- 编译部署产出 ---
+06_deploy/
+
+# --- 站点配置 (site.json, DC.ini, switch_mapping 等) ---
+05_production_data/Config/
+
+# --- 生产解析数据 (各站点各道岔的日 JSON) ---
+05_production_data/parsed_data/
+05_production_data/panyu_curves/
+05_production_data/ReferenceCurves/
+
+# --- 运行时计算产物 (基线、阈值 — 由程序自动生成) ---
+05_production_data/Rules/baselines.json
+05_production_data/Rules/current_baselines.json
+05_production_data/Rules/thresholds.json
+05_production_data/Rules/reference_curves/
+05_production_data/Rules/standard_curves/
+05_production_data/Rules/current_reference_curves/
+05_production_data/Rules/current_standard_curves/
+
+# --- 软件运行时配置 ---
+05_production_data/config.json
+05_production_data/logs/
+
+# --- 测试验证对比数据 (站点特定) ---
+04_tests/验证对比数据/
 
 # --- IDE / 编辑器 ---
 .vs/

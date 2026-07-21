@@ -22,7 +22,21 @@ body {
     margin-bottom: 4px;
 }
 
-/* 转辙机列表 */
+/* 下拉框统一样式 */
+.sidebar-select {
+    width: 100%;
+    padding: 4px 6px;
+    font: 14px SimSun, sans-serif;
+    background: #252545;
+    color: #e0e0e0;
+    border: 1px solid #3a3a6e;
+    outline: none;
+}
+.sidebar-select:focus {
+    border-color: #4488FF;
+}
+
+/* 转辙机列表（已废弃，保留样式以防引用） */
 .switch-list { list-style: none; }
 .switch-list li {
     padding: 6px 12px;
@@ -197,7 +211,7 @@ body {
     cursor: pointer;
     color: #aaa;
     font-family: Consolas, monospace;
-	    min-height: 24px;
+        min-height: 24px;
     font-size: 15px;
 }
 .time-list li:hover { background: #252545; color: #fff; }
@@ -245,13 +259,81 @@ body {
 
 /* 分割线 */
 .divider { border: none; border-top: 1px solid #2a2a4e; margin: 4px 0; }
+
+/* 站点状态指示灯 */
+.site-status-dot {
+    display: inline-block;
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    margin-right: 4px;
+    vertical-align: middle;
+}
+.site-status-dot.online  { background: #44CC44; }
+.site-status-dot.offline { background: #FF4444; }
+.site-status-dot.unknown { background: #666666; }
+
+/* 站点选择行 */
+.site-row {
+    overflow: hidden;
+    margin-bottom: 4px;
+}
+.site-select-wrap {
+    float: left;
+    width: 72%;
+}
+.site-row .sidebar-select {
+    width: 100%;
+}
+
+/* 补拉按钮 */
+.catchup-btn {
+    float: right;
+    width: 25%;
+    padding: 3px 4px;
+    font: 12px SimSun;
+    background: #335577;
+    color: #ddd;
+    border: 1px solid #446688;
+    cursor: pointer;
+    text-align: center;
+}
+.catchup-btn:hover {
+    background: #446699;
+    color: #fff;
+}
+.catchup-btn:disabled {
+    background: #2a2a3e;
+    color: #555;
+    cursor: default;
+    border-color: #333355;
+}
+
+/* 站点信息行（IP + 端口） */
+.site-info {
+    font-size: 11px;
+    color: #555;
+    padding: 2px 0;
+}
 </style>
 </head>
 <body>
 
 <div class="section">
-    <div class="section-title">转辙机组</div>
-    <ul class="switch-list" id="switchList"></ul>
+    <div class="section-title">站点 <span id="siteStatusDot" class="site-status-dot unknown"></span></div>
+    <div class="site-row">
+        <span class="site-select-wrap">
+            <select id="siteSelect" class="sidebar-select" onchange="onSiteChange()">
+            </select>
+        </span>
+        <button id="catchupBtn" class="catchup-btn" onclick="onCatchupClick()" disabled title="手动补拉数据">补拉</button>
+    </div>
+    <div class="site-info" id="siteInfo"></div>
+</div>
+
+<div class="section">
+    <div class="section-title">转辙机号</div>
+    <select id="switchSelect" class="sidebar-select" onchange="onSwitchChange()">
+    </select>
 </div>
 
 <hr class="divider">
@@ -317,44 +399,73 @@ var alarmBadges = {};      // D5: 日期角标数据 { "2026-01-29": {"预警":1
     todayStr = y + '-' + (m < 10 ? '0' : '') + m + '-' + (d < 10 ? '0' : '') + d;
 })();
 
-// ===== 初始化：加载转辙机列表 =====
-function initSwitchGroups(groupsJson) {
-    var groups;
-    if (typeof groupsJson === 'string') {
-        try { groups = JSON.parse(groupsJson); } catch(e) { groups = []; }
-    } else {
-        groups = groupsJson;
+function onSiteChange() {
+    var sel = document.getElementById('siteSelect');
+    var siteId = sel.value;
+    if (!siteId) return;
+
+    // 通知 C#（放在最前面，避免后续 DOM 操作异常导致调用丢失）
+    try { window.external.SelectSite(siteId); } catch(e) {}
+
+    // 更新站点信息行
+    var sitesJson = sel.getAttribute('data-sites');
+    if (sitesJson) {
+        try {
+            var sites = JSON.parse(sitesJson);
+            updateSiteInfo(sites, siteId);
+        } catch(e) {}
     }
 
-    var list = document.getElementById('switchList');
-    list.innerHTML = '';
+    // 更新状态灯和补拉按钮
+    updateSelectedSiteDot(_siteStatuses);
+
+    // 重置转辙机
+    currentSwitchId = null;
+    document.getElementById('switchSelect').selectedIndex = 0;
+
+    // 重置日历
+    allDates = [];
+    allDatesSet = {};
+    monthsWithData = {};
+    yearsWithData = {};
+    calView = 'day';
+    calYear = 0;
+    calMonth = 0;
+    document.getElementById('calendarGrid').innerHTML = '<div style="text-align:center;color:#555;padding:10px;">加载中...</div>';
+    document.getElementById('calMonthYear').innerText = '----年--月';
+
+    // 清空时间列表
+    document.getElementById('timeList').innerHTML = '<li class="empty-hint">加载中...</li>';
+    document.getElementById('timeInfo').innerText = '';
+}
+
+// ===== 转辙机下拉框 =====
+function populateSwitches(groups) {
+    var sel = document.getElementById('switchSelect');
+    sel.innerHTML = '';
+    if (!groups || groups.length === 0) {
+        var opt = document.createElement('option');
+        opt.value = '';
+        opt.innerText = '（无转辙机）';
+        sel.appendChild(opt);
+        return;
+    }
     for (var i = 0; i < groups.length; i++) {
-        var li = document.createElement('li');
-        li.innerText = groups[i].label || groups[i].Id || groups[i].id;
-        li.setAttribute('data-id', groups[i].Id || groups[i].id);
-        li.onclick = function() {
-            selectSwitch(this.getAttribute('data-id'));
-        };
-        list.appendChild(li);
+        var opt = document.createElement('option');
+        opt.value = groups[i].Id || groups[i].id;
+        opt.innerText = groups[i].Label || groups[i].label || groups[i].Id || groups[i].id;
+        sel.appendChild(opt);
     }
 }
 
-// ===== 转辙机选择 =====
-function selectSwitch(switchId) {
+function onSwitchChange() {
+    var sel = document.getElementById('switchSelect');
+    var switchId = sel.value;
+    if (!switchId || switchId === currentSwitchId) return;
+
     currentSwitchId = switchId;
     currentDate = null;
     currentTimestamp = null;
-
-    // 高亮
-    var items = document.querySelectorAll('#switchList li');
-    for (var i = 0; i < items.length; i++) {
-        var id = items[i].getAttribute('data-id');
-        if (id === switchId) {
-            items[i].className = 'active';
-        } else {
-            items[i].className = '';
-        }
-    }
 
     // 重置日历为加载状态
     allDates = [];
@@ -373,6 +484,19 @@ function selectSwitch(switchId) {
 
     // 通知 C#
     try { window.external.SelectSwitch(switchId); } catch(e) {}
+}
+
+// ===== C# 同步转辙机下拉框选中值（不触发 onchange） =====
+function setSelectedSwitch(switchId) {
+    if (!switchId) return;
+    currentSwitchId = switchId;
+    var sel = document.getElementById('switchSelect');
+    for (var i = 0; i < sel.options.length; i++) {
+        if (sel.options[i].value === switchId) {
+            sel.selectedIndex = i;
+            return;
+        }
+    }
 }
 
 // ===== 填充日期：C# 调用，datesJson 是日期字符串数组（降序） =====
@@ -782,8 +906,6 @@ function setSelectedTime(timestamp) {
     }
 }
 
-// （原此处有重复的 setSelectedTime 定义，已删除。保留上方保留级别着色的版本。）
-
 // ===== 时间点击 =====
 function selectTime(timestamp) {
     setSelectedTime(timestamp);
@@ -852,8 +974,164 @@ function formatTimestamp(ts) {
 
 // ===== 页面加载完成后初始化 =====
 function onSidebarReady() {
-    var groups = {{CONFIG_JSON}};
-    initSwitchGroups(groups);
+
+// ===== N01-4 站点状态指示灯（绿/红/灰） =====
+// C# 调用：updateSiteStatus("{ \"SSB\": \"online\", \"DHD\": \"offline\" }")
+function updateSiteStatuses(statusesJson) {
+    var statuses;
+    if (typeof statusesJson === 'string') {
+        try { statuses = JSON.parse(statusesJson); } catch(e) { statuses = {}; }
+    } else {
+        statuses = statusesJson;
+    }
+    if (!statuses) return;
+
+    // 更新下拉框选项中的状态符号
+    var sel = document.getElementById('siteSelect');
+    for (var i = 0; i < sel.options.length; i++) {
+        var opt = sel.options[i];
+        var siteId = opt.value;
+        var st = statuses[siteId] || 'unknown';
+        var prefix = (st === 'online') ? '● ' : (st === 'offline') ? '○ ' : '◌ ';
+        // 去除旧前缀后添加新前缀
+        var name = opt.getAttribute('data-name') || opt.innerText;
+        // 保存原始名称（不含状态符号）
+        if (!opt.getAttribute('data-name')) {
+            opt.setAttribute('data-name', name);
+        }
+        var cleanName = opt.getAttribute('data-name');
+        opt.innerText = prefix + cleanName;
+    }
+
+    // 更新当前选中站点的状态灯
+    updateSelectedSiteDot(statuses);
+}
+
+// 更新站点灯
+function updateSelectedSiteDot(statuses) {
+    var sel = document.getElementById('siteSelect');
+    var dot = document.getElementById('siteStatusDot');
+    var btn = document.getElementById('catchupBtn');
+    var info = document.getElementById('siteInfo');
+
+    var siteId = sel.value;
+    var st = statuses ? (statuses[siteId] || 'unknown') : 'unknown';
+
+    dot.className = 'site-status-dot ' + st;
+
+    // 离线时显示补拉按钮，在线/未知时隐藏
+    if (st === 'offline') {
+        btn.disabled = false;
+        btn.style.display = '';
+    } else {
+        btn.disabled = true;
+        btn.style.display = 'none';
+    }
+}
+
+// ===== 补拉按钮 =====
+function onCatchupClick() {
+    var sel = document.getElementById('siteSelect');
+    var siteId = sel.value;
+    if (!siteId) return;
+
+    var btn = document.getElementById('catchupBtn');
+    btn.disabled = true;
+    btn.innerText = '...';
+
+    try { window.external.CatchupData(siteId); } catch(e) {}
+}
+
+// C# 调用：补拉完成后恢复按钮
+function onCatchupComplete(siteId) {
+    var sel = document.getElementById('siteSelect');
+    if (sel.value === siteId) {
+        var btn = document.getElementById('catchupBtn');
+        btn.innerText = '补拉';
+        btn.disabled = true;
+        btn.style.display = 'none';
+    }
+}
+
+// C# 调用：更新站点信息行（IP + 端口）
+function setSiteInfo(text) {
+    document.getElementById('siteInfo').innerText = text || '';
+}
+
+// ===== 站点下拉框（含状态符号） =====
+var _siteStatuses = {};  // 内存状态缓存
+
+function populateSites(sites, selectedSiteId) {
+    var sel = document.getElementById('siteSelect');
+    sel.innerHTML = '';
+    if (!sites || sites.length === 0) {
+        sel.style.display = 'none';
+        return;
+    }
+    sel.style.display = '';
+
+    // 存储站点数据供 onSiteChange 使用
+    try { sel.setAttribute('data-sites', JSON.stringify(sites)); } catch(e) {}
+
+    for (var i = 0; i < sites.length; i++) {
+        var sid = sites[i].Id || sites[i].id;
+        var name = sites[i].Name || sites[i].name;
+        var st = _siteStatuses[sid] || 'unknown';
+        var prefix = (st === 'online') ? '● ' : (st === 'offline') ? '○ ' : '◌ ';
+
+        var opt = document.createElement('option');
+        opt.value = sid;
+        opt.setAttribute('data-name', name);
+        opt.innerText = prefix + name;
+        if (sid === selectedSiteId) {
+            opt.selected = true;
+        }
+        sel.appendChild(opt);
+    }
+
+    // 更新站点信息行
+    updateSiteInfo(sites, selectedSiteId);
+    updateSelectedSiteDot(_siteStatuses);
+
+    // IE8: innerHTML 可能清除 onchange 绑定，重新挂载
+    sel.onchange = onSiteChange;
+}
+
+// 更新当前选中站点的 IP:Port 信息行
+function updateSiteInfo(sites, selSiteId) {
+    if (!sites) return;
+    for (var i = 0; i < sites.length; i++) {
+        var sid = sites[i].Id || sites[i].id;
+        if (sid === selSiteId) {
+            var ip = sites[i].Ip || '';
+            var port = sites[i].Port || 0;
+            if (ip && port > 0) {
+                setSiteInfo(ip + ':' + port);
+            } else {
+                setSiteInfo('');
+            }
+            return;
+        }
+    }
+    setSiteInfo('');
+}
+    var sites = {{SITES_JSON}};
+    var groups = {{SWITCH_GROUPS_JSON}};
+    var selSiteId = "{{SELECTED_SITE_ID}}";
+
+    populateSites(sites, selSiteId);
+    populateSwitches(groups);
+
+    // 自动选中第一台转辙机并触发曲线数据加载
+    if (groups && groups.length > 0) {
+        var firstSwitchId = groups[0].Id || groups[0].id;
+        if (firstSwitchId) {
+            // 确保 onSwitchChange 不会因 same-id 检查跳过
+            currentSwitchId = null;
+            document.getElementById('switchSelect').selectedIndex = 0;
+            onSwitchChange();
+        }
+    }
 }
 </script>
 <script>onSidebarReady();</script>

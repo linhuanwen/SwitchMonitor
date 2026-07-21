@@ -69,6 +69,33 @@ namespace SwitchMonitor.Data
     }
 
     /// <summary>
+    /// 站点配置项
+    /// </summary>
+    public class SiteConfig
+    {
+        /// <summary>站点标识（如 "sanshuibei", "panyu"）</summary>
+        public string Id { get; set; }
+
+        /// <summary>站点显示名称（如 "三水北站", "番禺站"）</summary>
+        public string Name { get; set; }
+
+        /// <summary>原始数据源目录（相对或绝对路径）</summary>
+        public string DataSourceDir { get; set; }
+
+        /// <summary>解析后 JSON 数据目录（相对或绝对路径）</summary>
+        public string ParsedDataDir { get; set; }
+
+        /// <summary>该站点的转辙机组（null 时继承全局 SwitchGroups）</summary>
+        public List<SwitchGroup> SwitchGroups { get; set; }
+
+        /// <summary>站点 IP 地址（null/空时不参与网络通信，仅本地查看）</summary>
+        public string Ip { get; set; }
+
+        /// <summary>站点 HTTP 端口</summary>
+        public int Port { get; set; }
+    }
+
+    /// <summary>
     /// 转辙机组配置项
     /// </summary>
     public class SwitchGroup
@@ -92,6 +119,9 @@ namespace SwitchMonitor.Data
 
         /// <summary>1DQJ 启动继电器点号（可为 null）</summary>
         public int? DqjPointId { get; set; }
+
+        /// <summary>转辙机型号（"ZYJ7" / "ZDJ9"，手动配置，可为 null）</summary>
+        public string SwitchType { get; set; }
     }
 
     /// <summary>
@@ -231,19 +261,71 @@ namespace SwitchMonitor.Data
         public UiConfig Ui { get; set; }
         public DiagnosisConfig Diagnosis { get; set; }
 
+        /// <summary>站点列表（每个站点有独立的数据目录）</summary>
+        public List<SiteConfig> Sites { get; set; }
+
+        /// <summary>上次选择的站点 ID（持久化偏好）</summary>
+        public string SelectedSiteId { get; set; }
+
         /// <summary>digit.ini 配置文件路径（可为空，为空时不解析 digit 配置）</summary>
         public string DigitIniPath { get; set; }
 
         /// <summary>Digit(*).dat 开关量数据目录（可为空，为空时不读取开关量）</summary>
         public string DigitDataDir { get; set; }
 
+        // ── N01-5: 多站组网 + 厂商适配字段 ──
+
+        /// <summary>本站标识（如 "SSB"）。DataForwarder 用。</summary>
+        public string StationId { get; set; }
+
+        /// <summary>本站显示名称（如 "三水北站"）。DataForwarder 用。</summary>
+        public string StationName { get; set; }
+
+        /// <summary>角色："station"（站机）| "central"（总终端）。缺失默认 "station"</summary>
+        public string Role { get; set; }
+
+        /// <summary>厂商类型："huihuang" | "bangcheng" | "tonghao"。缺失默认 "huihuang"</summary>
+        public string VendorType { get; set; }
+
+        /// <summary>本地 HTTP 监听端口</summary>
+        public int ListenPort { get; set; }
+
+        /// <summary>推送订阅者列表（"IP:Port" 格式，站机用）</summary>
+        public List<string> Subscribers { get; set; }
+
+        /// <summary>推送打包合并窗口（毫秒），默认 1000</summary>
+        public int MergeWindowMs { get; set; }
+
+        /// <summary>数据保留天数（0=不限）</summary>
+        public int DataRetentionDays { get; set; }
+
+        /// <summary>班组管辖站点列表（role=station 时生效）</summary>
+        public List<SiteConfig> TeamStations { get; set; }
+
+        /// <summary>总终端管理站点列表（role=central 时生效）</summary>
+        public List<SiteConfig> Stations { get; set; }
+
         public AppConfig()
         {
             SwitchGroups = new List<SwitchGroup>();
+            Sites = new List<SiteConfig>();
             ScanInterval = 5;
             Diagnosis = new DiagnosisConfig();
             DigitIniPath = "";
             DigitDataDir = "";
+            SelectedSiteId = "";
+
+            // N01-5 默认值
+            StationId = "";
+            StationName = "";
+            Role = "station";
+            VendorType = "huihuang";
+            ListenPort = 9000;
+            Subscribers = new List<string>();
+            MergeWindowMs = 1000;
+            DataRetentionDays = 0;
+            TeamStations = new List<SiteConfig>();
+            Stations = new List<SiteConfig>();
         }
     }
 }

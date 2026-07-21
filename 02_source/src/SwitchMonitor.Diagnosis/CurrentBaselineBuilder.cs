@@ -28,7 +28,9 @@ namespace SwitchMonitor.Diagnosis
             {
                 if (f.IsValid && !f.IsFullWindow && f.DurationSec >= 2.4)
                 {
-                    if (direction != null && f.Direction != direction)
+                    // 方向过滤：仅当特征方向已知且与目标方向不匹配时才跳过
+                    // 未知方向（null）视为匹配所有方向，避免数据不足
+                    if (direction != null && f.Direction != null && f.Direction != direction)
                         continue;
                     pool.Add(f);
                 }

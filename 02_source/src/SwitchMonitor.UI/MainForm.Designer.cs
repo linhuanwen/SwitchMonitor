@@ -99,6 +99,13 @@ namespace SwitchMonitor.UI
             this.statusLabel.Size = new System.Drawing.Size(100, 17);
             this.statusLabel.Text = "就绪";
             //
+            // notifyIcon
+            //
+            this.notifyIcon = new System.Windows.Forms.NotifyIcon();
+            this.notifyIcon.Icon = System.Drawing.SystemIcons.Application;
+            this.notifyIcon.Visible = true;
+            this.notifyIcon.Text = "道岔监控系统";
+            //
             // MainForm
             //
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 12F);
@@ -109,7 +116,7 @@ namespace SwitchMonitor.UI
             this.Controls.Add(this.statusStrip);
             this.Name = "MainForm";
             this.StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen;
-            this.Text = "道岔监控数据查看系统 v12 (2026-07-06)";
+            this.Text = "道岔监控数据查看系统 V3.0";
             this.WindowState = System.Windows.Forms.FormWindowState.Maximized;
             ((System.ComponentModel.ISupportInitialize)(this.splitContainer)).EndInit();
             this.splitContainer.Panel1.ResumeLayout(false);
@@ -128,5 +135,6 @@ namespace SwitchMonitor.UI
         private System.Windows.Forms.WebBrowser chartBrowser;
         private System.Windows.Forms.StatusStrip statusStrip;
         private System.Windows.Forms.ToolStripStatusLabel statusLabel;
+        private System.Windows.Forms.NotifyIcon notifyIcon;
     }
 }

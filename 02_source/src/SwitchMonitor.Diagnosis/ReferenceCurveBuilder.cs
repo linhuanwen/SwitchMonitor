@@ -15,6 +15,9 @@ namespace SwitchMonitor.Diagnosis
         /// <summary>道岔标识</summary>
         public string SwitchId;
 
+        /// <summary>动作方向："定位→反位" 或 "反位→定位"</summary>
+        public string Direction;
+
         /// <summary>采样间隔（秒），通常 0.04</summary>
         public double SampleInterval;
 
@@ -27,6 +30,9 @@ namespace SwitchMonitor.Diagnosis
         /// <summary>计算时间</summary>
         public string ComputedAt;
 
+        /// <summary>来源："manual"=人工设定, "auto-picked"=自动挑选，空=未知</summary>
+        public string Source;
+
         public ReferenceCurve()
         {
             Values = new List<double>();
@@ -35,19 +41,22 @@ namespace SwitchMonitor.Diagnosis
 
     /// <summary>
     /// 参考曲线存储与读写器。
-    /// 存储路径: Rules/reference_curves/{switchId}.json
+    /// 存储路径: Rules/reference_curves/{switchId}_{direction}.json
+    /// 字典 key 格式: "switchId|direction"（与 BaselineStore.MakeKey 一致）
     /// </summary>
     public static class ReferenceCurveStore
     {
         /// <summary>
-        /// 保存一条参考曲线到 Rules/reference_curves/ 目录
+        /// 保存一条参考曲线到 Rules/reference_curves/ 目录。
+        /// 文件名 = {switchId}_{direction}.json
         /// </summary>
         public static void Save(string directory, ReferenceCurve curve)
         {
             if (!Directory.Exists(directory))
                 Directory.CreateDirectory(directory);
 
-            string filePath = Path.Combine(directory, curve.SwitchId + ".json");
+            string fileName = MakeFileName(curve.SwitchId, curve.Direction);
+            string filePath = Path.Combine(directory, fileName);
             var serializer = new JavaScriptSerializer();
             string json = serializer.Serialize(curve);
             File.WriteAllText(filePath, json, Encoding.UTF8);
@@ -75,7 +84,7 @@ namespace SwitchMonitor.Diagnosis
         }
 
         /// <summary>
-        /// 加载所有参考曲线
+        /// 加载所有参考曲线。key = "switchId|direction"
         /// </summary>
         public static Dictionary<string, ReferenceCurve> LoadAll(string directory)
         {
@@ -88,11 +97,22 @@ namespace SwitchMonitor.Diagnosis
                 var curve = Load(file);
                 if (curve != null && !string.IsNullOrEmpty(curve.SwitchId))
                 {
-                    result[curve.SwitchId] = curve;
+                    string key = BaselineStore.MakeKey(curve.SwitchId, curve.Direction);
+                    result[key] = curve;
                 }
             }
 
             return result;
+        }
+
+        /// <summary>
+        /// 构造文件名：{switchId}_{direction}.json
+        /// </summary>
+        public static string MakeFileName(string switchId, string direction)
+        {
+            if (string.IsNullOrEmpty(direction))
+                return switchId + ".json";
+            return switchId + "_" + direction + ".json";
         }
     }
 

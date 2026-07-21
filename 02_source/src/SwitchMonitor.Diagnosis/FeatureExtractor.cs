@@ -6,12 +6,19 @@ using SwitchMonitor.Data;
 namespace SwitchMonitor.Diagnosis
 {
     /// <summary>
-    /// 功率曲线特征提取器 + 五阶段分割。
-    /// 算法严格按 CONTEXT.md §3 规格实现，与 Python diag_reference_check.py 一致。
+    /// 功率曲线特征提取器 + 五阶段物理边界分割。
     ///
-    /// 五阶段：①启动尖峰(SpikePeak) → ②解锁段(UnlockMean) → ③转换段(ConvMean/ConvMax)
-    ///        → ④锁闭段(LockMean) → ⑤缓放段(TailMean)
-    /// 阶段分割位置：spikeIndex → +2→+14 → +20→activeEnd-40 → activeEnd-40→-22 → activeEnd-22→-2
+    /// 五阶段以物理事件为边界（非固定偏移量）：
+    ///   ① 启动尖峰 (SpikePeak) — 前 15 点最大值
+    ///   ② 解锁段 (UnlockMean) — 启动→最后锁钩落下（经验比例+局部方差精化）
+    ///   ③ 转换段 (ConvMean/ConvMax) — 解锁终点→密贴拐点
+    ///   ④ 锁闭段 (LockMean) — 密贴拐点→锁闭爬升结束
+    ///   ⑤ 缓放段 (TailMean) — 锁闭结束→归零前
+    ///
+    /// 物理模型依据 ZYJ7 外锁闭装置工作原理：
+    ///   - 解锁看锁钩数量：3台机≈4.9s, 2台机≈3.7s
+    ///   - 转换看动程长度：18号尖轨≈4.6s, 其他≈2.7s
+    ///   - 锁闭基本恒定 ≈1.9-2.0s
     /// </summary>
     public static class FeatureExtractor
     {
@@ -67,90 +74,88 @@ namespace SwitchMonitor.Diagnosis
             f.SpikePeak = Math.Round(spikePeak, 3);
             f.SpikeIndex = spikeIndex;
 
-            // ② 解锁段：[spikeIndex+2, spikeIndex+14) 共 12 点
-            int ulStart = spikeIndex + 2;
-            int ulEnd = Math.Min(spikeIndex + 14, n);
-            if (ulStart < ulEnd)
+            // ── ② 检测解锁终点（物理边界：最后锁钩落下位置）──
+            int unlockEnd = DetectUnlockEnd(values, spikeIndex, activeEnd);
+            f.UnlockEnd = unlockEnd;
+            if (unlockEnd > spikeIndex + 1)
             {
-                f.UnlockMean = Math.Round(SegmentMean(values, ulStart, ulEnd), 3);
+                f.UnlockMean = Math.Round(SegmentMean(values, spikeIndex + 2, unlockEnd + 1), 3);
             }
             else
             {
-                f.UnlockMean = 0.0;
+                // 退化：spikeIndex+2 到 activeEnd*0.5
+                int fallbackEnd = Math.Max(spikeIndex + 14, (int)(activeEnd * 0.5));
+                f.UnlockMean = Math.Round(SegmentMean(values, spikeIndex + 2, fallbackEnd), 3);
             }
 
-            // ③ 转换段：首选 [spikeIndex+20, activeEnd-40)
-            //    若无效退化为 [spikeIndex+2, activeEnd)
-            //    仍空则取 [0, activeEnd]
-            int convStart, convEnd;
-            if (activeEnd - 40 > spikeIndex + 20)
+            // ── ③ 检测密贴拐点 + 锁闭峰值 ──
+            int lockStart, lockPeak;
+            DetectContactAndLock(values, activeEnd, out lockStart, out lockPeak);
+            f.LockStart = lockStart;
+            if (lockStart < 0)
             {
-                convStart = spikeIndex + 20;
-                convEnd = activeEnd - 40;
+                // 退化：用旧算法的 activeEnd-40 作为锁闭起点
+                lockStart = activeEnd > 50 ? activeEnd - 40 : activeEnd;
             }
-            else
+
+            // 转换段 = 解锁终点 → 密贴拐点
+            int convStart = (unlockEnd > spikeIndex) ? unlockEnd + 1 : spikeIndex + 14;
+            int convEnd = lockStart;
+            if (convEnd > convStart && convStart < n)
             {
-                convStart = spikeIndex + 2;
-                convEnd = activeEnd;
-            }
-            if (convStart >= convEnd)
-            {
-                convStart = 0;
-                convEnd = activeEnd + 1; // [0, activeEnd] inclusive
-            }
-            if (convStart < convEnd)
-            {
-                f.ConvMean = Math.Round(SegmentMean(values, convStart, convEnd), 3);
-                f.ConvMax = Math.Round(SegmentMax(values, convStart, convEnd), 3);
+                if (convStart < convEnd)
+                {
+                    f.ConvMean = Math.Round(SegmentMean(values, convStart, convEnd), 3);
+                    f.ConvMax = Math.Round(SegmentMax(values, convStart, convEnd), 3);
+                }
+                else
+                {
+                    f.ConvMean = 0.0;
+                    f.ConvMax = 0.0;
+                }
+
+                // 台阶比：转换段等分三份
+                int convLen = convEnd - convStart;
+                int third = convLen / 3;
+                if (third >= 5)
+                {
+                    double frontMean = SegmentMean(values, convStart, convStart + third);
+                    double backMean = SegmentMean(values, convEnd - third, convEnd);
+                    f.StepRatio = Math.Round(backMean / Math.Max(frontMean, 0.01), 3);
+                }
+                else
+                {
+                    f.StepRatio = 1.0;
+                }
             }
             else
             {
                 f.ConvMean = 0.0;
                 f.ConvMax = 0.0;
-            }
-
-            // 台阶比：转换段等分三份，前1/3长度 < 5 点时恒为 1.0
-            int convLen = convEnd - convStart;
-            int third = convLen / 3;
-            if (third >= 5)
-            {
-                double frontMean = SegmentMean(values, convStart, convStart + third);
-                double backMean = SegmentMean(values, convEnd - third, convEnd);
-                f.StepRatio = Math.Round(backMean / Math.Max(frontMean, 0.01), 3);
-            }
-            else
-            {
                 f.StepRatio = 1.0;
             }
 
-            // ④ 锁闭段：[activeEnd-40, activeEnd-22) 共 18 点；activeEnd ≤ 50 时 lockMean = 0
-            //    退化策略：若 activeEnd-40 < 0，退化为 [0, activeEnd-22)
-            if (activeEnd > 50)
+            // ── ④ 锁闭段 + 缓放段 ──
+            if (lockPeak >= 0 && lockStart >= 0 && lockPeak > lockStart)
             {
-                int lockStart = activeEnd - 40;
-                int lockEnd = activeEnd - 22;
-                if (lockStart < 0) lockStart = 0;
-                if (lockStart < lockEnd)
+                // 锁闭终点：峰值后功率回落到密贴前水平
+                double preRampLevel = lockStart >= 5
+                    ? SegmentMean(values, lockStart - 5, lockStart + 1)
+                    : values[lockStart];
+                int postPeakSearchEnd = Math.Min(lockPeak + 40, activeEnd - 5);
+                int lockEnd = lockPeak + 5; // 默认峰值后 5 点
+                for (int i = lockPeak + 8; i < postPeakSearchEnd && i < n; i++)
                 {
-                    f.LockMean = Math.Round(SegmentMean(values, lockStart, lockEnd), 3);
+                    if (values[i] <= preRampLevel * 1.08 || values[i] <= values[lockPeak] * 0.55)
+                    {
+                        lockEnd = i;
+                        break;
+                    }
                 }
-                else
-                {
-                    f.LockMean = 0.0;
-                }
-            }
-            else
-            {
-                f.LockMean = 0.0;
-            }
-
-            // ⑤ 缓放尾段：[activeEnd-22, activeEnd-2) 共 20 点；activeEnd ≤ 30 时 tailMean = 0
-            if (activeEnd > 30)
-            {
-                int tailStart = activeEnd - 22;
+                f.LockMean = Math.Round(SegmentMean(values, lockStart, lockEnd + 1), 3);
+                int tailStart = lockEnd + 1;
                 int tailEnd = activeEnd - 2;
-                if (tailStart < 0) tailStart = 0;
-                if (tailStart < tailEnd)
+                if (tailEnd > tailStart && activeEnd > 30)
                 {
                     f.TailMean = Math.Round(SegmentMean(values, tailStart, tailEnd), 3);
                 }
@@ -161,7 +166,34 @@ namespace SwitchMonitor.Diagnosis
             }
             else
             {
-                f.TailMean = 0.0;
+                // 退化：旧算法
+                if (activeEnd > 50)
+                {
+                    int lsOld = Math.Max(0, activeEnd - 40);
+                    int leOld = activeEnd - 22;
+                    if (lsOld < leOld)
+                        f.LockMean = Math.Round(SegmentMean(values, lsOld, leOld), 3);
+                    else
+                        f.LockMean = 0.0;
+                }
+                else
+                {
+                    f.LockMean = 0.0;
+                }
+                // 旧算法缓放段
+                if (activeEnd > 30)
+                {
+                    int ts = Math.Max(0, activeEnd - 22);
+                    int te = activeEnd - 2;
+                    if (ts < te)
+                        f.TailMean = Math.Round(SegmentMean(values, ts, te), 3);
+                    else
+                        f.TailMean = 0.0;
+                }
+                else
+                {
+                    f.TailMean = 0.0;
+                }
             }
 
             return f;
@@ -225,6 +257,140 @@ namespace SwitchMonitor.Diagnosis
                 }
             }
             return found ? max : 0.0;
+        }
+
+        // ──────────────── 物理边界检测 ────────────────
+
+        /// <summary>
+        /// 检测解锁终点 — 经验比例 + 局部方差精化法。
+        /// J型（duration ≥ 10s, 3台机）：解锁 ≈ 42% × 总时长
+        /// X型（duration < 10s, 2台机）：解锁 ≈ 43% × 总时长
+        /// </summary>
+        internal static int DetectUnlockEnd(IList<double> values, int spikeIndex, int activeEnd)
+        {
+            int n = values.Count;
+            double durSec = (activeEnd + 1) * 0.04;
+            bool isJType = durSec >= 10.0;
+            double ratio = isJType ? 0.42 : 0.43;
+
+            int baseIdx = spikeIndex + (int)((activeEnd - spikeIndex) * ratio);
+
+            // 搜索窗口: 基准 ±20 点
+            int searchStart = Math.Max(spikeIndex + 5, baseIdx - 20);
+            int searchEnd = Math.Min((int)(activeEnd * 0.55), baseIdx + 20);
+            if (searchEnd <= searchStart + 10)
+                return baseIdx;
+
+            // 精化: 找局部方差最小的 10 点窗口（最稳定 = 转换段开始）
+            var smooth = MovingAverage(values, 7);
+            int bestIdx = baseIdx;
+            double bestVar = double.MaxValue;
+            int window = 10;
+            for (int i = searchStart; i < searchEnd - window && i + window < smooth.Length; i++)
+            {
+                double var = WindowVariance(smooth, i, i + window);
+                if (var < bestVar)
+                {
+                    bestVar = var;
+                    bestIdx = i + window / 2;
+                }
+            }
+            return bestIdx;
+        }
+
+        /// <summary>
+        /// 检测密贴拐点 + 锁闭峰值 — "先找峰，再找谷"法。
+        /// 1. 在尾部区域找到锁闭爬升峰值
+        /// 2. 从峰值向左回溯，找爬升前的谷底（密贴拐点）
+        /// 返回: lockStart, lockPeak（-1 表示检测失败，需退化）
+        /// </summary>
+        internal static void DetectContactAndLock(IList<double> values, int activeEnd,
+            out int lockStart, out int lockPeak)
+        {
+            lockStart = -1;
+            lockPeak = -1;
+            int n = values.Count;
+
+            // 1. 找锁闭峰值：[activeEnd*0.7, activeEnd-5] 内最大值
+            int peakSearchStart = (int)(activeEnd * 0.70);
+            int peakSearchEnd = Math.Max(peakSearchStart + 10, activeEnd - 5);
+            if (peakSearchEnd <= peakSearchStart || peakSearchEnd > n)
+                return;
+
+            double peakVal = values[peakSearchStart];
+            int peakIdx = peakSearchStart;
+            for (int i = peakSearchStart + 1; i < peakSearchEnd && i < n; i++)
+            {
+                if (values[i] > peakVal)
+                {
+                    peakVal = values[i];
+                    peakIdx = i;
+                }
+            }
+            lockPeak = peakIdx;
+
+            // 2. 从峰值向左找谷底：[lockPeak-35, lockPeak-6]
+            int valleySearchStart = Math.Max((int)(activeEnd * 0.55), lockPeak - 35);
+            int valleySearchEnd = lockPeak - 6;
+            if (valleySearchEnd <= valleySearchStart)
+                return;
+
+            var smooth = MovingAverage(values, 5);
+            double minVal = smooth[valleySearchStart];
+            int minIdx = valleySearchStart;
+            for (int i = valleySearchStart + 1; i < valleySearchEnd && i < smooth.Length; i++)
+            {
+                if (smooth[i] < minVal)
+                {
+                    minVal = smooth[i];
+                    minIdx = i;
+                }
+            }
+
+            // 3. 验证：谷底和峰值之间应有足够的功率上升
+            double rise = peakVal - minVal;
+            if (rise < 0.02) // 上升太小，不是真正的锁闭爬升
+                return;
+
+            lockStart = minIdx;
+        }
+
+        /// <summary>
+        /// 简单移动平均平滑（用于边界检测的内部辅助函数）
+        /// </summary>
+        internal static double[] MovingAverage(IList<double> values, int window)
+        {
+            int n = values.Count;
+            var result = new double[n];
+            int half = window / 2;
+            for (int i = 0; i < n; i++)
+            {
+                int start = Math.Max(0, i - half);
+                int end = Math.Min(n, i + half + 1);
+                double sum = 0.0;
+                for (int j = start; j < end; j++)
+                    sum += values[j];
+                result[i] = sum / (end - start);
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// 计算窗口内方差
+        /// </summary>
+        private static double WindowVariance(double[] values, int start, int end)
+        {
+            double sum = 0.0, sumSq = 0.0;
+            int count = 0;
+            for (int i = start; i < end && i < values.Length; i++)
+            {
+                sum += values[i];
+                sumSq += values[i] * values[i];
+                count++;
+            }
+            if (count < 3) return double.MaxValue;
+            double mean = sum / count;
+            return (sumSq / count) - (mean * mean);
         }
     }
 }

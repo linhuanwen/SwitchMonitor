@@ -4,12 +4,17 @@
     <RootNamespace>SwitchMonitor.Tests</RootNamespace>
     <AssemblyName>SwitchMonitor.Tests</AssemblyName>
     <OutputType>Exe</OutputType>
+    <PlatformTarget>x86</PlatformTarget>
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="System.Web.Extensions" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\SwitchMonitor.Data\SwitchMonitor.Data.csproj" />
+    <ProjectReference Include="..\SwitchMonitor.Storage\SwitchMonitor.Storage.csproj" />
     <ProjectReference Include="..\SwitchMonitor.Diagnosis\SwitchMonitor.Diagnosis.csproj" />
+    <ProjectReference Include="..\SwitchMonitor.Station\SwitchMonitor.Station.csproj" />
+    <ProjectReference Include="..\SwitchMonitor.DataForwarder\SwitchMonitor.DataForwarder.csproj" />
+    <ProjectReference Include="..\SwitchMonitor.Network\SwitchMonitor.Network.csproj" />
   </ItemGroup>
 </Project>

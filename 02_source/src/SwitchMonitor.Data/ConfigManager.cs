@@ -1,7 +1,9 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using System.Web.Script.Serialization;
+using SwitchMonitor.Station;
 
 namespace SwitchMonitor.Data
 {
@@ -48,8 +50,22 @@ namespace SwitchMonitor.Data
                 string json = File.ReadAllText(configPath, Encoding.UTF8);
                 var serializer = new JavaScriptSerializer();
                 _instance = serializer.Deserialize<AppConfig>(json);
+                // N01-5: 向后兼容 — 缺失字段应用默认值
+                ApplyBackwardCompatDefaults(_instance);
                 // 加载 digit.ini 配置填充 SwitchGroup 点号
                 LoadDigitPointConfig(_instance);
+
+                // 自动发现新站点（已有站点不覆盖）
+                try
+                {
+                    string rawDataDir = FindRawDataDir(AppDomain.CurrentDomain.BaseDirectory);
+                    IntegrateDiscoveredSites(_instance, rawDataDir);
+                }
+                catch
+                {
+                    // 发现失败不影响启动
+                }
+
                 return Tuple.Create(_instance, false);
             }
             catch (Exception ex)
@@ -79,15 +95,28 @@ namespace SwitchMonitor.Data
                 catch { }
             }
 
-            // 2. 回退：从同目录下的 switch_digit_config.json 读取
-            if (registry == null && !string.IsNullOrEmpty(config.DigitIniPath))
+            // 2. 回退：从 switch_digit_config.json 读取
+            if (registry == null)
             {
                 try
                 {
-                    string dir = Path.GetDirectoryName(config.DigitIniPath);
-                    string jsonPath = Path.Combine(dir ?? ".", "switch_digit_config.json");
-                    if (File.Exists(jsonPath))
-                        registry = DigitSwitchRegistry.Load(jsonPath);
+                    // 2a. 若 DigitIniPath 已配置，优先在同目录查找
+                    if (!string.IsNullOrEmpty(config.DigitIniPath))
+                    {
+                        string dir = Path.GetDirectoryName(config.DigitIniPath);
+                        string jsonPath = Path.Combine(dir ?? ".", "switch_digit_config.json");
+                        if (File.Exists(jsonPath))
+                            registry = DigitSwitchRegistry.Load(jsonPath);
+                    }
+
+                    // 2b. 在应用程序目录查找（部署时放在 exe 同目录即可）
+                    if (registry == null)
+                    {
+                        string appDir = AppDomain.CurrentDomain.BaseDirectory;
+                        string jsonPath = Path.Combine(appDir, "switch_digit_config.json");
+                        if (File.Exists(jsonPath))
+                            registry = DigitSwitchRegistry.Load(jsonPath);
+                    }
                 }
                 catch { }
             }
@@ -131,20 +160,10 @@ namespace SwitchMonitor.Data
         /// </summary>
         private static AppConfig CreateDefaultConfig()
         {
-            return new AppConfig
+            var config = new AppConfig
             {
-                SwitchGroups = new System.Collections.Generic.List<SwitchGroup>
-                {
-                    new SwitchGroup { Id = "1-J", Label = "1-J", DataFileIndex = 0 },
-                    new SwitchGroup { Id = "1-X", Label = "1-X", DataFileIndex = 4 },
-                    new SwitchGroup { Id = "3-J", Label = "3-J", DataFileIndex = 8 },
-                    new SwitchGroup { Id = "3-X", Label = "3-X", DataFileIndex = 12 },
-                    new SwitchGroup { Id = "2-J", Label = "2-J", DataFileIndex = 16 },
-                    new SwitchGroup { Id = "2-X", Label = "2-X", DataFileIndex = 20 },
-                    new SwitchGroup { Id = "4-J", Label = "4-J", DataFileIndex = 24 },
-                    new SwitchGroup { Id = "4-X", Label = "4-X", DataFileIndex = 28 }
-                },
-                DataSourceDir = @".\03_raw_data\sanshuibei",
+                SwitchGroups = new List<SwitchGroup>(),
+                DataSourceDir = @".\03_raw_data",
                 ParsedDataDir = @".\parsed_data",
                 ScanInterval = 5,
                 AlarmThresholds = new AlarmThresholdsConfig
@@ -181,8 +200,148 @@ namespace SwitchMonitor.Data
                 {
                     Enabled = true,
                     RulesDir = "Rules"
-                }
+                },
+                Sites = new List<SiteConfig>(),
+                SelectedSiteId = ""
             };
+
+            // 自动发现站点（从 BaseDirectory 向上搜索 03_raw_data/）
+            try
+            {
+                string rawDataDir = FindRawDataDir(AppDomain.CurrentDomain.BaseDirectory);
+                IntegrateDiscoveredSites(config, rawDataDir);
+            }
+            catch
+            {
+                // 发现失败不影响启动，使用空站点列表
+            }
+
+            return config;
+        }
+
+        /// <summary>
+        /// N01-5 向后兼容：缺失的新字段应用默认值。
+        /// JavaScriptSerializer 对缺失字段保持属性默认值，
+        /// 但引用类型（List/string）可能被反序列化为 null。
+        /// </summary>
+        private static void ApplyBackwardCompatDefaults(AppConfig config)
+        {
+            if (string.IsNullOrEmpty(config.StationId))
+                config.StationId = "";
+            if (string.IsNullOrEmpty(config.StationName))
+                config.StationName = "";
+            if (string.IsNullOrEmpty(config.Role))
+                config.Role = "station";
+            if (string.IsNullOrEmpty(config.VendorType))
+                config.VendorType = "huihuang";
+            if (config.Subscribers == null)
+                config.Subscribers = new List<string>();
+            if (config.TeamStations == null)
+                config.TeamStations = new List<SiteConfig>();
+            if (config.Stations == null)
+                config.Stations = new List<SiteConfig>();
+            if (config.ListenPort == 0)
+                config.ListenPort = 9000;
+            if (config.MergeWindowMs == 0)
+                config.MergeWindowMs = 1000;
+            // DataRetentionDays: 0 = 不限（有意为之，无需覆盖）
+        }
+
+        /// <summary>
+        /// 从指定目录向上搜索，定位 03_raw_data/ 目录。
+        /// 解决从 06_deploy/release/ 运行时找不到上层 03_raw_data/ 的问题。
+        /// </summary>
+        private static string FindRawDataDir(string startDir)
+        {
+            string current = startDir;
+            for (int i = 0; i < 5; i++)
+            {
+                string candidate = Path.Combine(current, "03_raw_data");
+                if (Directory.Exists(candidate))
+                    return candidate; // 返回绝对路径，避免相对路径在不同工作目录下失效
+
+                try
+                {
+                    var parent = Directory.GetParent(current);
+                    if (parent == null) break;
+                    current = parent.FullName;
+                }
+                catch
+                {
+                    break;
+                }
+            }
+
+            // 回退：若实在找不到，用相对路径（StationManager 会基于 BaseDirectory 解析）
+            return @".\03_raw_data";
+        }
+
+        /// <summary>
+        /// 扫描 03_raw_data/ 自动发现站点，集成到 AppConfig。
+        /// 已有配置的站点（同 Id）保持不变，新站点自动追加。
+        /// </summary>
+        public static void IntegrateDiscoveredSites(AppConfig config, string rawDataDir)
+        {
+            var manifest = StationManager.DiscoverStations(rawDataDir);
+            if (manifest.Count == 0)
+                return;
+
+            var existingIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (config.Sites != null)
+            {
+                foreach (var s in config.Sites)
+                    existingIds.Add(s.Id ?? "");
+            }
+
+            foreach (var m in manifest)
+            {
+                // 转换发现的 SwitchGroupDef → SwitchGroup
+                var groups = new List<SwitchGroup>();
+                if (m.SwitchGroups != null)
+                {
+                    foreach (var d in m.SwitchGroups)
+                    {
+                        groups.Add(new SwitchGroup
+                        {
+                            Id = d.Id,
+                            Label = d.Label,
+                            DataFileIndex = d.DataFileIndex,
+                            SwitchType = d.SwitchType
+                        });
+                    }
+                }
+
+                if (existingIds.Contains(m.Id))
+                {
+                    // 已存在：SwitchGroups 始终用 DC.ini / site.json 刷新
+                    // （DC.ini 和 site.json 是权威来源，config.json 中的 SwitchGroups 仅作缓存）
+                    if (groups.Count > 0)
+                    {
+                        var existingSite = config.Sites.Find(s =>
+                            string.Equals(s.Id, m.Id, StringComparison.OrdinalIgnoreCase));
+                        if (existingSite != null)
+                        {
+                            existingSite.SwitchGroups = groups;
+                        }
+                    }
+                    continue;
+                }
+
+                config.Sites.Add(new SiteConfig
+                {
+                    Id = m.Id,
+                    Name = m.Name,
+                    DataSourceDir = StationManager.ToRelativePath(m.DataSourceDir),
+                    ParsedDataDir = m.ParsedDataDir ?? (".\\parsed_data\\" + m.Id),
+                    SwitchGroups = groups.Count > 0 ? groups : null
+                });
+
+                existingIds.Add(m.Id);
+            }
+
+            // 无选中站点时默认选第一个
+            if (string.IsNullOrEmpty(config.SelectedSiteId) && config.Sites.Count > 0)
+                config.SelectedSiteId = config.Sites[0].Id;
         }
     }
 }

@@ -330,6 +330,7 @@ namespace SwitchMonitor.Tests
                 var curve = new ReferenceCurve
                 {
                     SwitchId = "1-J",
+                    Direction = "定位→反位",
                     SampleInterval = 0.04,
                     AlignIndex = 6,
                     Values = new List<double> { 0.0, 0.14, 0.24, 3.235, 0.350, 0.307, 0.301, 0.300, 0.299 },
@@ -338,7 +339,7 @@ namespace SwitchMonitor.Tests
 
                 ReferenceCurveStore.Save(dir, curve);
 
-                string expectedPath = Path.Combine(dir, "1-1.json");
+                string expectedPath = Path.Combine(dir, "1-J_定位→反位.json");
                 TestRunner.AssertFileExists(expectedPath, "参考曲线文件存在");
 
                 var loaded = ReferenceCurveStore.Load(expectedPath);

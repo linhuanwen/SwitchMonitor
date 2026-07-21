@@ -664,8 +664,20 @@ function setupMouseTracking() {
         tooltip.className = 'custom-tooltip';
         container.appendChild(tooltip);
     }
+    // 提示框初始隐藏，仅在鼠标位于绘图区时显示
+
+    // 创建纯 CSS 垂直参考线（替代 plotLine，避免每次触发 Highcharts 全图重绘）
+    var vline = document.getElementById('vline_detail');
+    if (!vline) {
+        vline = document.createElement('div');
+        vline.id = 'vline_detail';
+        vline.style.cssText = 'position:absolute;width:2px;background:#FFD700;' +
+            'pointer-events:none;z-index:5;display:none;';
+        container.appendChild(vline);
+    }
 
     var lastUpdate = 0;
+    var lastHtml = '';     // 上次提示框 HTML，避免无意义 DOM 重建
 
     // 获取容器的绝对位置（兼容 IE8）
     function getContainerOffset() {
@@ -726,35 +738,44 @@ function setupMouseTracking() {
         var mouseX = clientX - offset.left;
         var mouseY = clientY - offset.top;
 
-        // 检查鼠标是否在绘图区内
-        if (mouseX < chart.plotLeft || mouseX > chart.plotLeft + chart.plotWidth ||
-            mouseY < chart.plotTop || mouseY > chart.plotTop + chart.plotHeight) {
-            // 鼠标在绘图区外 — 隐藏工具提示和参考线
-            if (tooltip) tooltip.style.display = 'none';
-            try { xAxis.removePlotLine('mouse-vline'); } catch(ex) {}
+        var contW = container.offsetWidth || container.clientWidth || 0;
+        var contH = container.offsetHeight || container.clientHeight || 0;
+
+        // ---- 仅在绘图区内时显示提示框、垂直参考线和数值 ----
+        var inPlot = (mouseX >= chart.plotLeft && mouseX <= chart.plotLeft + chart.plotWidth &&
+                      mouseY >= chart.plotTop  && mouseY <= chart.plotTop  + chart.plotHeight);
+
+        if (!inPlot) {
+            vline.style.display = 'none';
+            tooltip.style.display = 'none';
+            lastHtml = '';
             return;
         }
 
-        // 将像素坐标转换为轴值（旧版Highcharts无toValue，手动计算）
+        // 更新提示框位置（跟随鼠标）
+        var tipW = 200;
+        var tipH = 100;
+        var tipLeft = mouseX + 16;
+        var tipTop = mouseY - 30;
+
+        if (tipLeft + tipW > contW)  tipLeft = mouseX - tipW - 10;
+        if (tipTop < 0)              tipTop = mouseY + 16;
+        if (tipTop + tipH > contH)   tipTop = contH - tipH - 4;
+        if (tipLeft < 0)             tipLeft = 4;
+
+        tooltip.style.left = tipLeft + 'px';
+        tooltip.style.top = tipTop + 'px';
+        tooltip.style.display = 'block';
+
+        // 更新垂直参考线（纯 CSS div，无 Highcharts 重绘）
+        vline.style.display = 'block';
+        vline.style.left = mouseX + 'px';
+        vline.style.top = chart.plotTop + 'px';
+        vline.style.height = chart.plotHeight + 'px';
+
+        // 将像素坐标转换为轴值
         var xExt = xAxis.getExtremes();
         var xVal = xExt.min + ((mouseX - chart.plotLeft) / (chart.plotWidth || 1)) * (xExt.max - xExt.min);
-
-        // 钳制到当前可视范围
-        if (xVal < xExt.min || xVal > xExt.max) {
-            if (tooltip) tooltip.style.display = 'none';
-            try { xAxis.removePlotLine('mouse-vline'); } catch(ex) {}
-            return;
-        }
-
-        // ---- 更新垂直参考线 ----
-        try { xAxis.removePlotLine('mouse-vline'); } catch(ex) {}
-        xAxis.addPlotLine({
-            id: 'mouse-vline',
-            color: '#FFD700',
-            width: 2,
-            value: xVal,
-            zIndex: 5
-        });
 
         // ---- 构建工具提示内容 ----
         var unit = isPower ? ' KW' : ' A';
@@ -784,54 +805,31 @@ function setupMouseTracking() {
                     '设定时间: ' + referenceTime + '</div>';
         }
 
-        // ---- 定位工具提示（鼠标右侧偏上） ----
-        if (tooltip) {
+        // 仅在内容变化时重建 DOM
+        if (html !== lastHtml) {
+            lastHtml = html;
             tooltip.innerHTML = html;
-            tooltip.style.display = 'block';
-
-            var contW = container.offsetWidth || container.clientWidth || 0;
-            var contH = container.offsetHeight || container.clientHeight || 0;
-            // 估算工具提示尺寸
-            var tipW = 200;
-            var tipH = 100;
-
-            var tipLeft = mouseX + 16;
-            var tipTop = mouseY - 30;
-
-            // 防止溢出右边界
-            if (tipLeft + tipW > contW) {
-                tipLeft = mouseX - tipW - 10;
-            }
-            // 防止溢出上边界
-            if (tipTop < 0) {
-                tipTop = mouseY + 16;
-            }
-            // 防止溢出下边界
-            if (tipTop + tipH > contH) {
-                tipTop = contH - tipH - 4;
-            }
-            // 防止溢出左边界
-            if (tipLeft < 0) {
-                tipLeft = 4;
-            }
-
-            tooltip.style.left = tipLeft + 'px';
-            tooltip.style.top = tipTop + 'px';
         }
     }
 
     function onMouseLeave() {
-        if (tooltip) tooltip.style.display = 'none';
-        try { xAxis.removePlotLine('mouse-vline'); } catch(ex) {}
+        vline.style.display = 'none';
+        tooltip.style.display = 'none';
+    }
+
+    function onMouseEnter() {
+        tooltip.style.display = 'block';
     }
 
     // 挂载事件（兼容 IE8+）
     if (container.addEventListener) {
         container.addEventListener('mousemove', onMouseMove, false);
         container.addEventListener('mouseleave', onMouseLeave, false);
+        container.addEventListener('mouseenter', onMouseEnter, false);
     } else if (container.attachEvent) {
         container.attachEvent('onmousemove', onMouseMove);
         container.attachEvent('onmouseout', onMouseLeave);
+        container.attachEvent('onmouseover', onMouseEnter);
     }
 }
 

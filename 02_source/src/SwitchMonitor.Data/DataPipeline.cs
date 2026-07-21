@@ -288,6 +288,10 @@ namespace SwitchMonitor.Data
                 }
             }
 
+            // 交替推断状态：无 digit 数据时，按道岔交替规律推断方向
+            // 道岔不可连续两次同方向动作 — 序列必为 定位→反位, 反位→定位, 定位→反位, ...
+            string altLastDir = null;
+
             foreach (var kvp in dateGroups)
             {
                 var events = kvp.Value;
@@ -303,6 +307,23 @@ namespace SwitchMonitor.Data
                         if (direction != null)
                             evt.Direction = direction;
                         // else: 保持默认值 "未知"
+                    }
+                }
+                else
+                {
+                    // 无 digit 数据：按交替规律推断方向
+                    // 首次从 反位→定位 开始，使第一个事件标注为 定位→反位
+                    if (altLastDir == null)
+                        altLastDir = "反位→定位";
+                    foreach (var evt in events)
+                    {
+                        if (string.IsNullOrEmpty(evt.Direction) || evt.Direction == "未知")
+                        {
+                            altLastDir = (altLastDir == "定位→反位")
+                                ? "反位→定位"
+                                : "定位→反位";
+                            evt.Direction = altLastDir;
+                        }
                     }
                 }
 

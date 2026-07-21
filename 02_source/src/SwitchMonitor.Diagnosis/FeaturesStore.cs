@@ -17,6 +17,27 @@ namespace SwitchMonitor.Diagnosis
         public List<string> Columns = new List<string>();
         public List<List<double>> Rows = new List<List<double>>();
 
+        // ── 批量缓冲：导入时避免每次 Append 都全量读写 JSON ──
+        /// <summary>是否启用批量缓冲模式（默认 false，逐条即时写盘）</summary>
+        public static bool BatchMode { get; set; }
+        private static readonly Dictionary<string, FeaturesStore> _batchBuffer = new Dictionary<string, FeaturesStore>();
+
+        /// <summary>
+        /// 刷新所有批量缓冲，写入磁盘并清空。
+        /// </summary>
+        public static void FlushBatch(string parsedDir)
+        {
+            lock (_batchBuffer)
+            {
+                foreach (var kv in _batchBuffer)
+                {
+                    string switchId = kv.Key;
+                    Save(parsedDir, switchId, kv.Value);
+                }
+                _batchBuffer.Clear();
+            }
+        }
+
         /// <summary>默认列定义</summary>
         public static readonly List<string> DefaultColumns = new List<string>
         {
@@ -102,31 +123,7 @@ namespace SwitchMonitor.Diagnosis
             double unlockMean, double convMean, double lockMean, double tailMean,
             string direction = null)
         {
-            string dir = Path.Combine(parsedDir, switchId);
-            if (!Directory.Exists(dir))
-                Directory.CreateDirectory(dir);
-
-            string filePath = Path.Combine(dir, "features.json");
-            var serializer = new JavaScriptSerializer();
-
-            FeaturesStore store;
-            if (File.Exists(filePath))
-            {
-                store = Load(filePath);
-                if (store == null || store.Columns == null || store.Columns.Count == 0)
-                {
-                    store = new FeaturesStore { Columns = new List<string>(DefaultColumns) };
-                }
-            }
-            else
-            {
-                store = new FeaturesStore { Columns = new List<string>(DefaultColumns) };
-            }
-
-            if (store.Rows == null)
-                store.Rows = new List<List<double>>();
-
-            store.Rows.Add(RowFromFeatures(timestamp, new CurveFeatures
+            var row = RowFromFeatures(timestamp, new CurveFeatures
             {
                 DurationSec = durationSec,
                 SpikePeak = spikePeak,
@@ -135,9 +132,51 @@ namespace SwitchMonitor.Diagnosis
                 LockMean = lockMean,
                 TailMean = tailMean,
                 Direction = direction
-            }));
+            });
 
-            string json = serializer.Serialize(store);
+            // 批量模式：只写内存缓冲，不落盘
+            if (BatchMode)
+            {
+                lock (_batchBuffer)
+                {
+                    FeaturesStore store;
+                    if (!_batchBuffer.TryGetValue(switchId, out store))
+                    {
+                        store = new FeaturesStore { Columns = new List<string>(DefaultColumns), Rows = new List<List<double>>() };
+                        _batchBuffer[switchId] = store;
+                    }
+                    store.Rows.Add(row);
+                }
+                return;
+            }
+
+            string dir = Path.Combine(parsedDir, switchId);
+            if (!Directory.Exists(dir))
+                Directory.CreateDirectory(dir);
+
+            string filePath = Path.Combine(dir, "features.json");
+            var serializer = new JavaScriptSerializer();
+
+            FeaturesStore existing;
+            if (File.Exists(filePath))
+            {
+                existing = Load(filePath);
+                if (existing == null || existing.Columns == null || existing.Columns.Count == 0)
+                {
+                    existing = new FeaturesStore { Columns = new List<string>(DefaultColumns) };
+                }
+            }
+            else
+            {
+                existing = new FeaturesStore { Columns = new List<string>(DefaultColumns) };
+            }
+
+            if (existing.Rows == null)
+                existing.Rows = new List<List<double>>();
+
+            existing.Rows.Add(row);
+
+            string json = serializer.Serialize(existing);
             File.WriteAllText(filePath, json, Encoding.UTF8);
         }
 

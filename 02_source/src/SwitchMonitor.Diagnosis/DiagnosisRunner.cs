@@ -13,6 +13,11 @@ namespace SwitchMonitor.Diagnosis
     public static class DiagnosisRunner
     {
         /// <summary>
+        /// 最近一次 CreateHook 创建的 DiagnosisEngine 实例，供外部热更新标准曲线。
+        /// </summary>
+        public static DiagnosisEngine LastEngine { get; private set; }
+
+        /// <summary>
         /// 根据配置创建诊断钩子委托（工厂方法）。
         /// 返回 null 表示诊断已禁用（config.Diagnosis.Enabled == false）。
         /// </summary>
@@ -25,8 +30,14 @@ namespace SwitchMonitor.Diagnosis
             if (!Path.IsPathRooted(rulesDir))
                 rulesDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, rulesDir);
 
+            // 基线目录 = 站点 parsed_data 目录（按站点隔离），未提供时回退到 rulesDir
+            string baselinesDir = parsedDataDir;
+            if (!string.IsNullOrEmpty(baselinesDir) && !Path.IsPathRooted(baselinesDir))
+                baselinesDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, baselinesDir);
+
             var engine = new DiagnosisEngine();
-            engine.Initialize(rulesDir);
+            engine.Initialize(rulesDir, baselinesDir);
+            LastEngine = engine;
 
             // D6: 设置 parsed_data 目录用于 T1 趋势分析
             if (!string.IsNullOrEmpty(parsedDataDir))
@@ -222,6 +233,82 @@ namespace SwitchMonitor.Diagnosis
             }
 
             Logger.Info(string.Format("RerunAll 完成: 共 {0} 个事件, {1} 条异常", totalEvents, totalAbnormal));
+        }
+
+        /// <summary>
+        /// 重跑指定转辙机列表的诊断（不重新导 CSV）。
+        /// 与 RerunAll 逻辑一致，但只处理传入的 switchIds。
+        /// </summary>
+        /// <param name="indexManager">已初始化的 IndexManager</param>
+        /// <param name="engine">已初始化的诊断引擎</param>
+        /// <param name="switchIds">要处理的转辙机 ID 列表</param>
+        public static void RerunSelected(IndexManager indexManager, IDiagnosisEngine engine, List<string> switchIds)
+        {
+            if (indexManager == null)
+                throw new ArgumentNullException("indexManager");
+            if (engine == null)
+                throw new ArgumentNullException("engine");
+            if (switchIds == null || switchIds.Count == 0)
+                return;
+
+            int totalEvents = 0;
+            int totalAbnormal = 0;
+
+            foreach (var switchId in switchIds)
+            {
+                var dates = indexManager.GetDates(switchId);
+                foreach (var date in dates)
+                {
+                    var dayEvents = indexManager.LoadDayData(switchId, date);
+                    var diagnoses = new List<EventDiagnosis>();
+
+                    foreach (var evt in dayEvents)
+                    {
+                        EventDiagnosis result;
+                        try
+                        {
+                            result = Run(engine, switchId, evt, indexManager.ParsedDataDir);
+                        }
+                        catch (Exception ex)
+                        {
+                            Logger.Error(string.Format("RerunSelected 诊断失败 switchId={0} eventTs={1}", switchId, evt.Timestamp), ex);
+                            result = new EventDiagnosis
+                            {
+                                Timestamp = evt.Timestamp,
+                                Level = DiagnosisLevel.Alarm,
+                                Results = new List<DiagnosisItem>
+                                {
+                                    new DiagnosisItem
+                                    {
+                                        RuleId = "R0",
+                                        RuleName = "采集异常",
+                                        Level = DiagnosisLevel.Alarm,
+                                        Description = "诊断引擎执行异常: " + ex.Message,
+                                        Value = 0,
+                                        Reference = 0
+                                    }
+                                }
+                            };
+                        }
+                        diagnoses.Add(result);
+                        totalEvents++;
+                        if (result.Level != DiagnosisLevel.Normal)
+                            totalAbnormal++;
+                    }
+
+                    try
+                    {
+                        indexManager.SaveDayDiagnosis(switchId, date, diagnoses);
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.Error(string.Format("RerunSelected 保存失败 switchId={0} date={1}", switchId, date), ex);
+                    }
+                }
+            }
+
+            Logger.Info(string.Format("RerunSelected 完成 ({0} 台转辙机): 共 {1} 个事件, {2} 条异常",
+                switchIds.Count, totalEvents, totalAbnormal));
         }
 
         /// <summary>

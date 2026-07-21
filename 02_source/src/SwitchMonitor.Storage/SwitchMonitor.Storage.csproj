@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net40</TargetFramework>
+    <RootNamespace>SwitchMonitor.Storage</RootNamespace>
+    <AssemblyName>SwitchMonitor.Storage</AssemblyName>
+    <OutputType>Library</OutputType>
+    <PlatformTarget>x86</PlatformTarget>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="System.Data" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="System.Data.SQLite.Core" Version="1.0.118.0" />
+  </ItemGroup>
+</Project>

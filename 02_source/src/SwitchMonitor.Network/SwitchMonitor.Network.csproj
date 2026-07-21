@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net40</TargetFramework>
+    <RootNamespace>SwitchMonitor.Network</RootNamespace>
+    <AssemblyName>SwitchMonitor.Network</AssemblyName>
+    <OutputType>Library</OutputType>
+    <PlatformTarget>x86</PlatformTarget>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="System.Web.Extensions" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\SwitchMonitor.Storage\SwitchMonitor.Storage.csproj" />
+    <ProjectReference Include="..\SwitchMonitor.Data\SwitchMonitor.Data.csproj" />
+  </ItemGroup>
+</Project>

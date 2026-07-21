@@ -14,10 +14,10 @@ html, body {
     overflow: hidden;
 }
 
-/* 工具栏 */
+/* 工具栏（单行紧凑布局，短标签避免被浮动按钮遮挡） */
 .toolbar {
     background: #2d2d2d;
-    padding: 4px 10px;
+    padding: 4px 8px;
     border-bottom: 1px solid #555555;
     height: 28px;
     line-height: 28px;
@@ -25,16 +25,16 @@ html, body {
     z-index: 10;
 }
 .toolbar label {
-    margin-right: 14px;
+    margin-right: 8px;
     cursor: pointer;
     color: #cccccc;
     font-size: 12px;
 }
-.toolbar input[type="checkbox"] { margin-right: 3px; vertical-align: middle; }
+.toolbar input[type="checkbox"] { margin-right: 2px; vertical-align: middle; }
 .toolbar button {
     float: right;
-    margin-left: 8px;
-    padding: 2px 10px;
+    margin-left: 5px;
+    padding: 2px 7px;
     background: #444466;
     color: #dddddd;
     border: 1px solid #666688;
@@ -160,21 +160,37 @@ html, body {
 <body>
 
 <!-- 诊断标记 -->
-<div style="background:#FF0000;color:#FFFFFF;font-size:14px;padding:2px 8px;position:absolute;top:0;right:0;z-index:9999;" id="_renderTest">RENDER</div>
+<div style="background:#555;color:#999;font-size:10px;padding:1px 6px;position:absolute;bottom:0;left:0;z-index:9999;opacity:0.6;" id="_renderTest">RENDER</div>
 
 <div class="toolbar" id="toolbar">
-    <label><input type="checkbox" id="chkCurrentA" checked onchange="toggleCheckbox()">A相电流</label>
-    <label><input type="checkbox" id="chkCurrentB" checked onchange="toggleCheckbox()">B相电流</label>
-    <label><input type="checkbox" id="chkCurrentC" checked onchange="toggleCheckbox()">C相电流</label>
-    <label><input type="checkbox" id="chkPower" checked onchange="toggleCheckbox()">功率</label>
-    <label style="margin-left:16px;"><input type="checkbox" id="chkThreshold" checked onchange="toggleCheckbox()">报警上限</label>
-    <label style="margin-left:16px;"><input type="checkbox" id="chkReference" onchange="toggleReference()">参考曲线</label>
-    <label style="margin-left:8px;"><input type="checkbox" id="chkBaseline" onchange="toggleBaseline()">功率基线</label>
-    <label style="margin-left:8px;"><input type="checkbox" id="chkCurrentBaseline" onchange="toggleCurrentBaseline()">电流基线</label>
-    <button id="btnSetReference" disabled onclick="setReferenceCurve()">设定参考曲线</button>
     <button id="btnResetZoom" disabled onclick="resetAllZoom()">重置缩放</button>
-    <button id="btnExportPng" disabled onclick="exportPng()">导出图片</button>
-    <button id="btnExportCsv" disabled onclick="exportCsv()">导出CSV</button>
+    <label><input type="checkbox" id="chkCurrentA" checked onchange="toggleCheckbox()">A相</label>
+    <label><input type="checkbox" id="chkCurrentB" checked onchange="toggleCheckbox()">B相</label>
+    <label><input type="checkbox" id="chkCurrentC" checked onchange="toggleCheckbox()">C相</label>
+    <label><input type="checkbox" id="chkPower" checked onchange="toggleCheckbox()">功率</label>
+    <label style="margin-left:12px;"><input type="checkbox" id="chkThreshold" checked onchange="toggleCheckbox()">阈值</label>
+    <label style="margin-left:12px;"><input type="checkbox" id="chkReference" onchange="toggleReference()">参考</label>
+    <label style="margin-left:2px;" title="勾选=中位标准曲线+人工参考曲线融合；不勾选=纯人工参考曲线"><input type="checkbox" id="chkFusion" checked onchange="toggleFusion()">融合</label>
+    <select id="selFusionWeight" onchange="onFusionWeightChange()" onkeyup="onFusionWeightChange()"
+            style="vertical-align:middle;margin-left:4px;font-size:11px;width:auto;"
+            title="融合权重：0%=纯人工参考曲线，100%=纯中位标准曲线（由历史数据生成）">
+      <option value="0">权重0%</option>
+      <option value="10">10%</option>
+      <option value="20">20%</option>
+      <option value="30">30%</option>
+      <option value="40">40%</option>
+      <option value="50">50%</option>
+      <option value="60">60%</option>
+      <option value="70">70%</option>
+      <option value="80">80%</option>
+      <option value="90">90%</option>
+      <option value="100" selected>100%</option>
+    </select>
+    <label style="margin-left:4px;"><input type="checkbox" id="chkBaseline" onchange="toggleBaseline()">P基线</label>
+    <label style="margin-left:4px;"><input type="checkbox" id="chkCurrentBaseline" onchange="toggleCurrentBaseline()">I基线</label>
+    <button id="btnCancelReference" disabled onclick="cancelReferenceCurve()" style="margin-left:4px;">取消设定</button>
+    <button id="btnSetReference" disabled onclick="setReferenceCurve()">设定参考</button>
+    <span id="refCurveStatus" style="display:none;margin-left:6px;font-size:12px;vertical-align:middle;"></span>
 </div>
 
 <div class="diag-bar diag-bar-unknown" id="diagBar" title=""><span class="diag-dot diag-dot-unknown">&#9679;</span>未诊断</div>
@@ -272,7 +288,8 @@ if (typeof JSON === 'undefined') {
 // ===== 全局变量 =====
 var charts = {};
 var chartDataCache = null;
-var referenceCurveData = {};   // 按 switchId 索引的参考曲线字典
+var referenceCurveData = {};   // 按 switchId|direction 索引的原始参考曲线
+var standardCurveData = {};    // 按 switchId|direction 索引的标准曲线（参考+基线融合）
 var baselineStore = {};       // 按 switchId 索引的诊断基线数据（功率）
 var currentBaselineStore = {}; // 按 switchId 索引的电流诊断基线数据
 
@@ -702,8 +719,20 @@ function setupChartMouseTracking(chart, containerId) {
         tooltip.className = 'custom-tooltip';
         container.appendChild(tooltip);
     }
+    // 提示框初始隐藏，仅在鼠标位于绘图区时显示
+
+    // 创建纯 CSS 垂直参考线（替代 plotLine，避免每次触发 Highcharts 全图重绘）
+    var vline = document.getElementById('vline_' + containerId);
+    if (!vline) {
+        vline = document.createElement('div');
+        vline.id = 'vline_' + containerId;
+        vline.style.cssText = 'position:absolute;width:2px;background:#FFD700;' +
+            'pointer-events:none;z-index:5;display:none;';
+        container.appendChild(vline);
+    }
 
     var lastUpdate = 0;
+    var lastHtml = '';     // 上次提示框 HTML，避免无意义 DOM 重建
 
     // 获取容器的绝对位置（兼容 IE8）
     function getContainerOffset() {
@@ -762,34 +791,44 @@ function setupChartMouseTracking(chart, containerId) {
         var mouseX = clientX - offset.left;
         var mouseY = clientY - offset.top;
 
-        // 检查鼠标是否在绘图区内
-        if (mouseX < chart.plotLeft || mouseX > chart.plotLeft + chart.plotWidth ||
-            mouseY < chart.plotTop || mouseY > chart.plotTop + chart.plotHeight) {
-            if (tooltip) tooltip.style.display = 'none';
-            try { xAxis.removePlotLine('mouse-vline'); } catch(ex) {}
+        var contW = container.offsetWidth || container.clientWidth || 0;
+        var contH = container.offsetHeight || container.clientHeight || 0;
+
+        // ---- 仅在绘图区内时显示提示框、垂直参考线和数值 ----
+        var inPlot = (mouseX >= chart.plotLeft && mouseX <= chart.plotLeft + chart.plotWidth &&
+                      mouseY >= chart.plotTop  && mouseY <= chart.plotTop  + chart.plotHeight);
+
+        if (!inPlot) {
+            vline.style.display = 'none';
+            tooltip.style.display = 'none';
+            lastHtml = '';
             return;
         }
 
-        // 将像素坐标转换为轴值（旧版Highcharts无toValue，手动计算）
+        // 更新提示框位置（跟随鼠标）
+        var tipW = 200;
+        var tipH = 100;
+        var tipLeft = mouseX + 16;
+        var tipTop = mouseY - 30;
+
+        if (tipLeft + tipW > contW)  tipLeft = mouseX - tipW - 10;
+        if (tipTop < 0)              tipTop = mouseY + 16;
+        if (tipTop + tipH > contH)   tipTop = contH - tipH - 4;
+        if (tipLeft < 0)             tipLeft = 4;
+
+        tooltip.style.left = tipLeft + 'px';
+        tooltip.style.top = tipTop + 'px';
+        tooltip.style.display = 'block';
+
+        // 更新垂直参考线（纯 CSS div，无 Highcharts 重绘）
+        vline.style.display = 'block';
+        vline.style.left = mouseX + 'px';
+        vline.style.top = chart.plotTop + 'px';
+        vline.style.height = chart.plotHeight + 'px';
+
+        // 将像素坐标转换为轴值
         var xExt = xAxis.getExtremes();
         var xVal = xExt.min + ((mouseX - chart.plotLeft) / (chart.plotWidth || 1)) * (xExt.max - xExt.min);
-
-        // 钳制到当前可视范围
-        if (xVal < xExt.min || xVal > xExt.max) {
-            if (tooltip) tooltip.style.display = 'none';
-            try { xAxis.removePlotLine('mouse-vline'); } catch(ex) {}
-            return;
-        }
-
-        // ---- 更新垂直参考线 ----
-        try { xAxis.removePlotLine('mouse-vline'); } catch(ex) {}
-        xAxis.addPlotLine({
-            id: 'mouse-vline',
-            color: '#FFD700',
-            width: 2,
-            value: xVal,
-            zIndex: 5
-        });
 
         // ---- 构建工具提示内容 ----
         var unit = isPower ? ' KW' : ' A';
@@ -846,49 +885,31 @@ function setupChartMouseTracking(chart, containerId) {
                     '设定时间: ' + refTime + '</div>';
         }
 
-        // ---- 定位工具提示（鼠标右侧偏上） ----
-        if (tooltip) {
+        // 仅在内容变化时重建 DOM
+        if (html !== lastHtml) {
+            lastHtml = html;
             tooltip.innerHTML = html;
-            tooltip.style.display = 'block';
-
-            var contW = container.offsetWidth || container.clientWidth || 0;
-            var contH = container.offsetHeight || container.clientHeight || 0;
-            var tipW = 200;
-            var tipH = 100;
-
-            var tipLeft = mouseX + 16;
-            var tipTop = mouseY - 30;
-
-            if (tipLeft + tipW > contW) {
-                tipLeft = mouseX - tipW - 10;
-            }
-            if (tipTop < 0) {
-                tipTop = mouseY + 16;
-            }
-            if (tipTop + tipH > contH) {
-                tipTop = contH - tipH - 4;
-            }
-            if (tipLeft < 0) {
-                tipLeft = 4;
-            }
-
-            tooltip.style.left = tipLeft + 'px';
-            tooltip.style.top = tipTop + 'px';
         }
     }
 
     function onMouseLeave() {
-        if (tooltip) tooltip.style.display = 'none';
-        try { xAxis.removePlotLine('mouse-vline'); } catch(ex) {}
+        vline.style.display = 'none';
+        tooltip.style.display = 'none';
+    }
+
+    function onMouseEnter() {
+        tooltip.style.display = 'block';
     }
 
     // 挂载事件（兼容 IE8+）
     if (container.addEventListener) {
         container.addEventListener('mousemove', onMouseMove, false);
         container.addEventListener('mouseleave', onMouseLeave, false);
+        container.addEventListener('mouseenter', onMouseEnter, false);
     } else if (container.attachEvent) {
         container.attachEvent('onmousemove', onMouseMove);
         container.attachEvent('onmouseout', onMouseLeave);
+        container.attachEvent('onmouseover', onMouseEnter);
     }
 }
 
@@ -996,6 +1017,7 @@ function createChart(containerId, title, yAxisConfig, seriesData, xMax) {
         if (chart) {
             // 标记功率图表，tooltip 用它做反向变换
             chart._isPowerChart = isPowerChart;
+            chart._chartKey = containerId;
             // 设置鼠标滚轮缩放和拖拽平移
             setupMouseWheelZoom(chart, containerId);
             setupMousePanDrag(chart, containerId);
@@ -1271,8 +1293,6 @@ function loadChartData(dataJson) {
     if (grid) grid.style.display = 'block';
 
     // 启用按钮
-    document.getElementById('btnExportPng').disabled = false;
-    document.getElementById('btnExportCsv').disabled = false;
     document.getElementById('btnSetReference').disabled = false;
     document.getElementById('btnResetZoom').disabled = false;
 
@@ -1426,13 +1446,43 @@ function loadChartData(dataJson) {
     // D5: 渲染诊断结论条
     renderDiagnosisBar(data.diagnosis || null);
 
-    // D6: 自动加载参考曲线（如果 chartData 中包含 refCurve 字段）
-    if (data.refCurve) {
-        loadRefCurveFromBackend(data.refCurve, data.switchId);
-        // 如果参考曲线复选框已勾选，立即叠加显示
-        if (document.getElementById('chkReference').checked) {
-            addReferenceSeries();
+    // D8: 更新参考曲线/标准曲线设定状态
+    updateRefCurveStatus(data);
+
+    // D8: 加载标准曲线（参考曲线 + 基线融合），存入独立字典
+    if (data.standardCurves && data.standardCurves.length > 0) {
+        for (var ii = 0; ii < data.standardCurves.length; ii++) {
+            loadStandardCurveFromBackend(data.standardCurves[ii], data.switchId);
         }
+    } else if (data.standardCurve) {
+        loadStandardCurveFromBackend(data.standardCurve, data.switchId);
+    }
+
+    // D6: 加载原始参考曲线（功率）
+    if (data.refCurves && data.refCurves.length > 0) {
+        for (var jj = 0; jj < data.refCurves.length; jj++) {
+            loadRefCurveFromBackend(data.refCurves[jj], data.switchId);
+        }
+    } else if (data.refCurve) {
+        loadRefCurveFromBackend(data.refCurve, data.switchId);
+    }
+
+    // D6b: 加载电流原始参考曲线（分相）
+    if (data.currentRefCurves && data.currentRefCurves.length > 0) {
+        for (var jc = 0; jc < data.currentRefCurves.length; jc++) {
+            loadRefCurveFromBackend(data.currentRefCurves[jc], data.switchId);
+        }
+    }
+    // D8b: 加载电流标准曲线（分相中位统计）
+    if (data.currentStandardCurves && data.currentStandardCurves.length > 0) {
+        for (var cc = 0; cc < data.currentStandardCurves.length; cc++) {
+            loadStandardCurveFromBackend(data.currentStandardCurves[cc], data.switchId);
+        }
+    }
+
+    // 如果参考曲线复选框已勾选（无论标准还是原始），叠加显示
+    if (document.getElementById('chkReference').checked && getCurrentReference()) {
+        addReferenceSeries();
     }
 
     // D7: 存储并自动叠加诊断基线（功率）
@@ -1457,29 +1507,101 @@ function loadChartData(dataJson) {
 
 // ===== D6: 从后端加载参考曲线并存入 referenceCurveData =====
 function loadRefCurveFromBackend(refCurveData, switchId) {
-    if (!refCurveData || !refCurveData.values || !switchId) return;
+    if (!refCurveData || !switchId) return;
+    // 至少需要有功率或电流数据
+    if (!refCurveData.values && !refCurveData.currentA && !refCurveData.currentB && !refCurveData.currentC) return;
 
-    // 转换为前端 referenceCurveData 格式（[t, v] 对已由 C# 构建）
-    // D6 参考曲线目前仅包含功率数据
+    // 方向感知 key：switchId|direction
+    var direction = refCurveData.direction || '';
+    var key = switchId + (direction ? '|' + direction : '');
+
     // 检查是否已有用户手动设定的参考曲线（用户设定优先级更高）
-    if (referenceCurveData[switchId]) {
-        // 已有手动设定的参考曲线，保留用户版本
+    if (referenceCurveData[key] && referenceCurveData[key]._manual) {
         return;
     }
 
-    var ref = {
+    // 获取或创建参考曲线对象（支持合并：功率+电流可能分两次加载）
+    var ref = referenceCurveData[key] || {
+        direction: direction,
         currentA: null,
         currentB: null,
         currentC: null,
-        power: refCurveData.values,  // [[t, v], ...] 数组
-        label: switchId + ' D6参考曲线'
+        power: null,
+        label: switchId + ' ' + direction + ' 参考曲线'
     };
 
-    referenceCurveData[switchId] = ref;
+    // 合并数据
+    if (refCurveData.values) { ref.power = refCurveData.values; }
+    if (refCurveData.currentA) { ref.currentA = refCurveData.currentA; }
+    if (refCurveData.currentB) { ref.currentB = refCurveData.currentB; }
+    if (refCurveData.currentC) { ref.currentC = refCurveData.currentC; }
+
+    referenceCurveData[key] = ref;
 
     // 更新按钮文本
     var label = chartDataCache ? (chartDataCache.switchLabel || switchId) : switchId;
     document.getElementById('btnSetReference').innerHTML = label + ' 已载入参考';
+}
+
+// ===== D8: 从后端加载标准曲线（中位统计），存入独立字典 =====
+function loadStandardCurveFromBackend(scData, switchId) {
+    if (!scData || !switchId) return;
+    // 至少需要有功率或电流数据
+    if (!scData.values && !scData.currentA && !scData.currentB && !scData.currentC) return;
+
+    var direction = scData.direction || '';
+    var key = switchId + (direction ? '|' + direction : '');
+
+    // 获取或创建标准曲线对象（支持合并：功率+电流可能分两次加载）
+    var sc = standardCurveData[key] || {
+        direction: direction,
+        currentA: null,
+        currentB: null,
+        currentC: null,
+        power: null,
+        fusionWeight: scData.fusionWeight || 0,
+        label: switchId + ' ' + direction + ' 标准曲线(中位统计)'
+    };
+
+    // 合并数据
+    if (scData.values) { sc.power = scData.values; }
+    if (scData.currentA) { sc.currentA = scData.currentA; }
+    if (scData.currentB) { sc.currentB = scData.currentB; }
+    if (scData.currentC) { sc.currentC = scData.currentC; }
+    if (scData.fusionWeight !== undefined && scData.fusionWeight !== null) {
+        sc.fusionWeight = scData.fusionWeight;
+    }
+
+    standardCurveData[key] = sc;
+
+    // 若当前事件的曲线方向匹配，同步融合权重到下拉菜单
+    if (!_fusionWeightChanging && chartDataCache && chartDataCache.currentEvent) {
+        var ceDir = chartDataCache.currentEvent.direction || '';
+        if (direction === ceDir && scData.fusionWeight !== undefined) {
+            var sel = document.getElementById('selFusionWeight');
+            if (sel) {
+                var pct = Math.round(scData.fusionWeight * 100);
+                if (sel.querySelector('option[value="' + pct + '"]')) {
+                    sel.value = String(pct);
+                }
+            }
+        }
+    }
+}
+
+// 构建参考曲线字典 key
+function makeRefKey(switchId, direction) {
+    if (!switchId) return '';
+    return switchId + (direction ? '|' + direction : '');
+}
+
+// ===== 读取融合权重（0.0 ~ 1.0） =====
+function getFusionWeight() {
+    var sel = document.getElementById('selFusionWeight');
+    if (!sel) return 1.0;
+    var val = parseInt(sel.value, 10);
+    if (isNaN(val)) return 1.0;
+    return val / 100.0;
 }
 
 // ===== 重置所有图表缩放 =====
@@ -1504,22 +1626,190 @@ function resetAllZoom() {
 // ===== 更新参考曲线按钮状态 =====
 function updateReferenceButton() {
     var btn = document.getElementById('btnSetReference');
+    var cancelBtn = document.getElementById('btnCancelReference');
     if (!btn) return;
-    var curRef = getCurrentReference();
-    if (curRef) {
-        var label = chartDataCache.switchLabel || chartDataCache.switchId || '';
-        btn.innerHTML = label + ' 已设定参考曲线';
+
+    var ce = chartDataCache ? chartDataCache.currentEvent : null;
+    var direction = (ce && ce.direction) ? ce.direction : '';
+    var key = makeRefKey((chartDataCache && chartDataCache.switchId) || '', direction);
+    var hasRef = referenceCurveData[key] || standardCurveData[key];
+
+    // 判断当前方向是否为人工设定（只有人工设定才能取消）
+    var isManual = false;
+    var status = (chartDataCache && chartDataCache.refCurveStatus);
+    if (status && status.directions) {
+        for (var d = 0; d < status.directions.length; d++) {
+            if (status.directions[d].direction === direction) {
+                isManual = (status.directions[d].refSource === 'manual');
+                break;
+            }
+        }
+    }
+
+    var label = (chartDataCache && (chartDataCache.switchLabel || chartDataCache.switchId)) || '';
+    if (hasRef) {
+        var srcLabel = isManual ? ' [人工]' : ' [自动]';
+        btn.innerHTML = label + ' ' + direction + ' 已设定参考曲线' + srcLabel;
     } else {
         btn.innerHTML = '设定参考曲线';
     }
+
+    // 取消按钮：仅当当前方向为人工设定的参考曲线时才启用
+    if (cancelBtn) {
+        cancelBtn.disabled = !(hasRef && isManual);
+        if (hasRef && isManual && direction) {
+            cancelBtn.title = '取消 ' + direction + ' 的人工参考曲线设定';
+        } else if (hasRef && !isManual) {
+            cancelBtn.title = '当前为自动生成的曲线，取消基线融合即可隐藏';
+        } else {
+            cancelBtn.title = '';
+        }
+    }
 }
 
-// ===== 获取当前转辙机的参考曲线 =====
+// ===== D8: 更新参考曲线/标准曲线设定状态显示 =====
+var DIRECTION_LABELS = {
+    '定位→反位': '反操(定→反)',
+    '反位→定位': '定操(反→定)'
+};
+
+function refSourceColor(source) {
+    // 仅人工设定为绿色，其余均为灰色
+    if (source === 'manual') return '#4f4';  // 绿色：人工设定
+    return '#888';                            // 灰色：无人工设定
+}
+
+function standardDotColor(hasStandard) {
+    return hasStandard ? '#4f4' : '#888';  // 标准曲线：有=绿，无=灰
+}
+
+function updateRefCurveStatus(data) {
+    var el = document.getElementById('refCurveStatus');
+    if (!el) return;
+
+    // data 优先从 chartDataCache.refCurveStatus 取，也接受直接传入
+    var status = (data && data.refCurveStatus) || (chartDataCache && chartDataCache.refCurveStatus);
+    if (!status || !status.directions || status.directions.length === 0) {
+        el.style.display = 'none';
+        return;
+    }
+
+    var html = '';
+    for (var i = 0; i < status.directions.length; i++) {
+        var d = status.directions[i];
+        var label = DIRECTION_LABELS[d.direction] || d.direction;
+        // 参考点: 仅人工设定为绿色
+        var refColor = refSourceColor(d.refSource || '');
+        var refDot = d.hasReference
+            ? '<span style="color:' + refColor + ';">&#9679;</span>'
+            : '<span style="color:#888;">&#9678;</span>';
+        // 标准点: 有标准曲线即为绿色（由基线数据生成），无则为灰色
+        var scColor = standardDotColor(d.hasStandard);
+        var scDot = d.hasStandard
+            ? '<span style="color:' + scColor + ';">&#9679;</span>'
+            : '<span style="color:#888;">&#9678;</span>';
+        html += '<span title="' + d.direction + ' 参考:' + (d.hasReference ? '已设定' : '未设定(人工)') + ' 标准:' + (d.hasStandard ? '已生成(基线)' : '未生成') + '">'
+            + label + ' 参考' + refDot + ' 标准' + scDot
+            + '</span>';
+        if (i < status.directions.length - 1) {
+            html += ' &nbsp;|&nbsp; ';
+        }
+    }
+
+    el.innerHTML = html;
+    el.style.display = 'inline';
+}
+
+// ===== 获取当前转辙机的参考曲线（按方向），受"基线融合"复选框控制 =====
 function getCurrentReference() {
     if (!chartDataCache) return null;
     var sid = chartDataCache.switchId;
     if (!sid) return null;
-    return referenceCurveData[sid] || null;
+    var ce = chartDataCache.currentEvent;
+    var direction = (ce && ce.direction) ? ce.direction : '';
+    var key = makeRefKey(sid, direction);
+
+    // 基线融合勾选且有标准曲线 → 返回融合后的标准曲线
+    var fusionChk = document.getElementById('chkFusion');
+    var useFusion = fusionChk && fusionChk.checked;
+    if (useFusion && standardCurveData[key]) {
+        return standardCurveData[key];
+    }
+
+    // 否则返回原始参考曲线
+    var ref = referenceCurveData[key];
+    if (ref) return ref;
+
+    // 降级：无方向匹配时返回该 switchId 的任一条
+    // 优先标准曲线
+    if (useFusion) {
+        for (var sk in standardCurveData) {
+            if (standardCurveData.hasOwnProperty(sk) && sk.indexOf(sid + '|') === 0) {
+                return standardCurveData[sk];
+            }
+        }
+    }
+    for (var k in referenceCurveData) {
+        if (referenceCurveData.hasOwnProperty(k) && k.indexOf(sid + '|') === 0) {
+            return referenceCurveData[k];
+        }
+    }
+    return null;
+}
+
+// ===== 基线融合复选框切换 =====
+function toggleFusion() {
+    // 先移除旧参考曲线，再按新模式叠加
+    removeReferenceSeries();
+    if (document.getElementById('chkReference').checked) {
+        addReferenceSeries();
+    }
+    // 如果勾选了融合，触发标准曲线重建（使权重立即生效）
+    if (document.getElementById('chkFusion').checked) {
+        onFusionWeightChange();
+    }
+}
+
+// ===== 融合权重选择器变更 → 重建标准曲线 =====
+var _fusionWeightChanging = false;
+
+function onFusionWeightChange() {
+    // 防止 C# LoadCurveData → loadChartData → 下拉同步 → onchange 导致的死循环
+    if (_fusionWeightChanging) return;
+    _fusionWeightChanging = true;
+
+    try {
+        var w = getFusionWeight();
+
+        // 更新 tooltip 显示当前权重
+        var sel = document.getElementById('selFusionWeight');
+        if (sel) sel.title = '融合权重：' + Math.round(w * 100) + '% — ' +
+            (w >= 1.0 ? '纯中位标准曲线' : w <= 0.0 ? '纯人工参考曲线' : '参考+中位混合');
+
+        // 仅当融合模式开启且有数据时才触发后端重建
+        var fusionChk = document.getElementById('chkFusion');
+        if (!fusionChk || !fusionChk.checked) return;
+        if (!chartDataCache || !chartDataCache.switchId) return;
+
+        var sid = chartDataCache.switchId;
+        var ce = chartDataCache.currentEvent;
+        var direction = (ce && ce.direction) ? ce.direction : '';
+        if (!direction) return;
+
+        // 检查是否有参考曲线数据（人工或自动）
+        var key = makeRefKey(sid, direction);
+        if (!referenceCurveData[key] && !standardCurveData[key]) return;
+
+        window.external.SetFusionWeight(sid, direction, w);
+        // 更新状态栏以确认权重已应用
+        var statusEl = document.getElementById('refCurveStatus');
+        if (statusEl) {
+            statusEl.title = '上次权重更新: ' + Math.round(w * 100) + '% (' + new Date().toLocaleTimeString() + ')';
+        }
+    } finally {
+        // 延迟重置防护，等待 C# 的 LoadCurveData 往返完成
+        setTimeout(function() { _fusionWeightChanging = false; }, 500);
+    }
 }
 
 // ===== 设定参考曲线 =====
@@ -1541,11 +1831,12 @@ function setReferenceCurve() {
         ref.label = (ce.datetime || '') + ' (参考)';
     }
 
-    // 按转辙机号存储参考曲线
-    referenceCurveData[sid] = ref;
+    // 按转辙机号+方向存储参考曲线
+    var refKey = makeRefKey(sid, (ce && ce.direction) ? ce.direction : '');
+    referenceCurveData[refKey] = ref;
 
-    // 更新按钮文本，显示当前转辙机号
-    var label = chartDataCache.switchLabel || sid;
+    // 更新按钮文本，显示当前转辙机号+方向
+    var label = (chartDataCache.switchLabel || sid) + ' ' + ((ce && ce.direction) ? ce.direction : '');
     document.getElementById('btnSetReference').innerHTML = label + ' 已设定参考曲线';
 
     // 更新所有图表的参考时间（供鼠标追踪提示框使用）
@@ -1559,6 +1850,95 @@ function setReferenceCurve() {
     if (document.getElementById('chkReference').checked) {
         addReferenceSeries();
     }
+
+    // ── D8: 调用 C# 保存参考曲线并自动生成标准曲线 ──
+    try {
+        var powerValues = [];
+        if (ce && ce.power) {
+            for (var i = 0; i < ce.power.length; i++) {
+                powerValues.push(ce.power[i][1]);  // 只取 Y 值
+            }
+        }
+        var direction = (ce && ce.direction) ? ce.direction : '';
+        window.external.SetReferenceCurve(sid, JSON.stringify(powerValues), direction, getFusionWeight());
+
+        // 乐观更新状态显示：当前方向已人工设定
+        if (chartDataCache && chartDataCache.refCurveStatus && chartDataCache.refCurveStatus.directions) {
+            var dirs = chartDataCache.refCurveStatus.directions;
+            for (var d = 0; d < dirs.length; d++) {
+                if (dirs[d].direction === direction) {
+                    dirs[d].hasReference = true;
+                    dirs[d].refSource = 'manual';
+                    dirs[d].hasStandard = true;
+                    break;
+                }
+            }
+        }
+        updateRefCurveStatus();
+    } catch(e) {
+        // 兼容旧版 C# 无此方法时静默忽略
+    }
+}
+
+// ===== 取消设定参考曲线（仅删除人工参考曲线，标准曲线由后端从基线重建） =====
+function cancelReferenceCurve() {
+    if (!chartDataCache) return;
+    var sid = chartDataCache.switchId;
+    if (!sid) return;
+
+    var ce = chartDataCache.currentEvent;
+    var direction = (ce && ce.direction) ? ce.direction : '';
+    if (!direction) return;
+
+    // 仅允许取消人工设定的参考曲线
+    var isManual = false;
+    var status = (chartDataCache && chartDataCache.refCurveStatus);
+    if (status && status.directions) {
+        for (var d = 0; d < status.directions.length; d++) {
+            if (status.directions[d].direction === direction) {
+                isManual = (status.directions[d].refSource === 'manual');
+                break;
+            }
+        }
+    }
+    if (!isManual) {
+        alert('当前方向（' + direction + '）无人工设定参考曲线，无需取消。');
+        return;
+    }
+
+    var key = makeRefKey(sid, direction);
+
+    // 1. 删除前端缓存的参考曲线
+    if (referenceCurveData[key]) {
+        delete referenceCurveData[key];
+    }
+
+    // 2. 刷新图表（标准曲线由基线独立生成，不受影响）
+    removeReferenceSeries();
+    if (document.getElementById('chkReference').checked) {
+        addReferenceSeries();
+    }
+
+    // 3. 更新按钮状态
+    updateReferenceButton();
+
+    // 4. 更新状态指示器：仅清除人工参考标记，标准曲线不变
+    if (chartDataCache && chartDataCache.refCurveStatus && chartDataCache.refCurveStatus.directions) {
+        var dirs = chartDataCache.refCurveStatus.directions;
+        for (var d = 0; d < dirs.length; d++) {
+            if (dirs[d].direction === direction) {
+                dirs[d].hasReference = false;
+                dirs[d].refSource = '';
+                break;
+            }
+        }
+    }
+    updateRefCurveStatus();
+
+    // 5. 调用 C# 删除人工参考曲线文件（标准曲线保持不变）
+    try {
+        window.external.CancelReferenceCurve(sid, direction, '', 0);
+    } catch(e) { }
 }
 
 // ===== 参考曲线显隐切换 =====
@@ -1571,9 +1951,51 @@ function toggleReference() {
 }
 
 // ===== 添加参考曲线到图表 =====
+// ===== 获取指定图表对应方向的参考曲线（按图表事件方向匹配） =====
+function getReferenceForChart(chartKey) {
+    if (!chartDataCache) return null;
+    var sid = chartDataCache.switchId;
+    if (!sid) return null;
+
+    // chart1/2 → currentEvent, chart3/4 → prevEvent
+    var evt = (chartKey === 'chart1' || chartKey === 'chart2')
+        ? chartDataCache.currentEvent
+        : chartDataCache.prevEvent;
+    var direction = (evt && evt.direction) ? evt.direction : '';
+    var key = makeRefKey(sid, direction);
+
+    // 基线融合勾选且有标准曲线 → 返回融合后的标准曲线
+    var fusionChk = document.getElementById('chkFusion');
+    var useFusion = fusionChk && fusionChk.checked;
+    if (useFusion && standardCurveData[key]) {
+        return standardCurveData[key];
+    }
+
+    // 否则返回原始参考曲线
+    var ref = referenceCurveData[key];
+    if (ref) return ref;
+
+    // 降级：无方向匹配时返回该 switchId 的任一条
+    if (useFusion) {
+        for (var sk in standardCurveData) {
+            if (standardCurveData.hasOwnProperty(sk) && sk.indexOf(sid + '|') === 0) {
+                return standardCurveData[sk];
+            }
+        }
+    }
+    for (var k in referenceCurveData) {
+        if (referenceCurveData.hasOwnProperty(k) && k.indexOf(sid + '|') === 0) {
+            return referenceCurveData[k];
+        }
+    }
+    return null;
+}
+
 function addReferenceSeries() {
-    var ref = getCurrentReference();
-    if (!ref) return;
+    // 至少一个图表有参考曲线才干
+    var hasAny = getReferenceForChart('chart1') || getReferenceForChart('chart2')
+              || getReferenceForChart('chart3') || getReferenceForChart('chart4');
+    if (!hasAny) return;
     removeReferenceSeries();
 
     var showA = document.getElementById('chkCurrentA').checked;
@@ -1581,11 +2003,13 @@ function addReferenceSeries() {
     var showC = document.getElementById('chkCurrentC').checked;
     var showPower = document.getElementById('chkPower').checked;
 
-    // 电流图表（chart1, chart3）: 参考曲线 A/B/C，跟随对应相 checkbox 状态
+    // 电流图表（chart1, chart3）: 参考曲线 A/B/C，各图表独立查方向
     var currentCharts = [charts.chart1, charts.chart3];
     for (var ci = 0; ci < currentCharts.length; ci++) {
         var cChart = currentCharts[ci];
         if (!cChart) continue;
+        var ref = getReferenceForChart(cChart._chartKey || (ci === 0 ? 'chart1' : 'chart3'));
+        if (!ref) continue;
         if (ref.currentA) {
             cChart.addSeries({
                 name: '参考曲线：电流(A)',
@@ -1622,22 +2046,22 @@ function addReferenceSeries() {
         try { cChart.redraw(); } catch(e) {}
     }
 
-    // 功率图表（chart2, chart4）: 参考曲线 功率，跟随功率 checkbox 状态
-    var powerCharts = [charts.chart2, charts.chart4];
-    for (var pi = 0; pi < powerCharts.length; pi++) {
-        var pChart = powerCharts[pi];
+    // 功率图表（chart2, chart4）: 各图表独立查方向
+    var powerChartKeys = ['chart2', 'chart4'];
+    for (var pi = 0; pi < powerChartKeys.length; pi++) {
+        var pChart = charts[powerChartKeys[pi]];
         if (!pChart) continue;
-        if (ref.power) {
-            pChart.addSeries({
-                name: '参考曲线：功率',
-                color: colors.refPower,
-                data: transformPowerData(ref.power),
-                lineWidth: 2,
-                marker: { enabled: false },
-                visible: showPower
-            }, false);
-            try { pChart.redraw(); } catch(e) {}
-        }
+        var ref2 = getReferenceForChart(powerChartKeys[pi]);
+        if (!ref2 || !ref2.power) continue;
+        pChart.addSeries({
+            name: '参考曲线：功率',
+            color: colors.refPower,
+            data: transformPowerData(ref2.power),
+            lineWidth: 2,
+            marker: { enabled: false },
+            visible: showPower
+        }, false);
+        try { pChart.redraw(); } catch(e) {}
     }
 }
 
@@ -2026,10 +2450,9 @@ function clearCharts() {
     destroyCharts();
     // 注意：不清除 referenceCurveData 字典，参考曲线是按转辙机号持久保留的
     document.getElementById('emptyState').style.display = 'block';
-    document.getElementById('btnExportPng').disabled = true;
-    document.getElementById('btnExportCsv').disabled = true;
     document.getElementById('btnSetReference').disabled = true;
     document.getElementById('btnSetReference').innerHTML = '设定参考曲线';
+    document.getElementById('refCurveStatus').style.display = 'none';
     document.getElementById('btnResetZoom').disabled = true;
     chartDataCache = null;
     // D5: 重置诊断条
@@ -2049,16 +2472,6 @@ function updateThreshold(thresholdJson) {
         if (t.power !== undefined) chartDataCache.thresholdPower = t.power;
         loadChartData(chartDataCache);
     }
-}
-
-// ===== 导出 PNG =====
-function exportPng() {
-    try { window.external.ExportPng(); } catch(e) {}
-}
-
-// ===== 导出 CSV =====
-function exportCsv() {
-    try { window.external.ExportCsv(); } catch(e) {}
 }
 
 // ===== 窗口大小变化自适应 =====

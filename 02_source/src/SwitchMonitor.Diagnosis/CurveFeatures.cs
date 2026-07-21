@@ -37,10 +37,16 @@ namespace SwitchMonitor.Diagnosis
         /// <summary>启动尖峰所在下标（多个相同取第一个）</summary>
         public int SpikeIndex;
 
-        /// <summary>解锁段均值 [spikeIndex+2, spikeIndex+14)，kW</summary>
+        /// <summary>解锁终点下标（物理边界：最后锁钩落下位置）</summary>
+        public int UnlockEnd;
+
+        /// <summary>锁闭起点下标（物理边界：密贴拐点位置）</summary>
+        public int LockStart;
+
+        /// <summary>解锁段均值 [spikeIndex+2, unlockEnd]，kW</summary>
         public double UnlockMean;
 
-        /// <summary>转换段均值，kW</summary>
+        /// <summary>转换段均值 [unlockEnd+1, lockStart)，kW</summary>
         public double ConvMean;
 
         /// <summary>转换段最大值，kW</summary>
@@ -49,10 +55,10 @@ namespace SwitchMonitor.Diagnosis
         /// <summary>台阶比 = 转换段后1/3均值 / 前1/3均值</summary>
         public double StepRatio;
 
-        /// <summary>锁闭段均值 [activeEnd-40, activeEnd-22)，kW；activeEnd≤50 时为 0</summary>
+        /// <summary>锁闭段均值 [lockStart, lockEnd]，kW</summary>
         public double LockMean;
 
-        /// <summary>缓放段均值 [activeEnd-22, activeEnd-2)，kW；activeEnd≤30 时为 0</summary>
+        /// <summary>缓放段均值 [lockEnd+1, activeEnd-2)，kW</summary>
         public double TailMean;
     }
 }

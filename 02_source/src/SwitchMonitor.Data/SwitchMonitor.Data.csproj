@@ -8,4 +8,8 @@
   <ItemGroup>
     <Reference Include="System.Web.Extensions" />
   </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\SwitchMonitor.Station\SwitchMonitor.Station.csproj" />
+    <ProjectReference Include="..\SwitchMonitor.Storage\SwitchMonitor.Storage.csproj" />
+  </ItemGroup>
 </Project>

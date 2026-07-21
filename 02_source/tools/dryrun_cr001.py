@@ -7,10 +7,12 @@ import statistics
 import json
 from pathlib import Path
 
+from diag_reference_check import extract
+
 SRC = Path(r'd:\Vibe coding\04 DCjiance\SwitchMonitor\03_raw_data\sanshuibei_csv')
 BASELINE_PATH = Path(r'd:\Vibe coding\04 DCjiance\SwitchMonitor\05_production_data\Rules\baselines.json')
-POWER_FILES = {3: '1-1', 7: '1-X', 11: '3-1', 15: '3-X',
-               19: '2-1', 23: '2-X', 27: '4-1', 31: '4-X'}
+POWER_FILES = {3: '1-J', 7: '1-X', 11: '3-J', 15: '3-X',
+               19: '2-J', 23: '2-X', 27: '4-J', 31: '4-X'}
 
 MULTIPLIER = 1.8  # CR001 threshold from KB002
 
@@ -30,48 +32,6 @@ def read_power_rows(path):
                 vals.append(float(x))
             out.append((int(r[0]), r[1], vals))
     return out
-
-def extract(v):
-    f = {}
-    f['sampleCount'] = len(v)
-    f['isFullWindow'] = len(v) >= 780
-    peak_all = max(v) if v else 0.0
-    f['isValid'] = bool(v) and peak_all > 0.01
-    if not f['isValid']:
-        return f
-    th = max(peak_all * 0.05, 0.01)
-    last = 0
-    for i, x in enumerate(v):
-        if x > th:
-            last = i
-    f['activeEnd'] = last
-    f['durationSec'] = round((last + 1) * 0.04, 2)
-    head = v[:15]
-    f['spikePeak'] = round(max(head), 3)
-    sp = head.index(max(head))
-    f['spikeIndex'] = sp
-    seg = v[sp + 2:sp + 14]
-    f['unlockMean'] = round(statistics.mean(seg), 3) if seg else 0.0
-    conv = v[sp + 20:last - 40] if last - 40 > sp + 20 else v[sp + 2:last]
-    if not conv:
-        conv = v[:last + 1]
-    f['convMean'] = round(statistics.mean(conv), 3)
-    f['convMax'] = round(max(conv), 3)
-    third = len(conv) // 3
-    if third >= 5:
-        f['stepRatio'] = round(statistics.mean(conv[-third:]) / max(statistics.mean(conv[:third]), 0.01), 3)
-    else:
-        f['stepRatio'] = 1.0
-    lock_seg = v[last - 40:last - 22] if last > 50 else []
-    if lock_seg:
-        if last - 40 < 0:
-            lock_seg = v[0:last - 22]
-        f['lockMean'] = round(statistics.mean(lock_seg), 3)
-    else:
-        f['lockMean'] = 0.0
-    tail = v[last - 22:last - 2] if last > 30 else []
-    f['tailMean'] = round(statistics.mean(tail), 3) if tail else 0.0
-    return f
 
 def build_baseline(feats, min_samples=30):
     pool = [f for f in feats if f.get('isValid') and not f['isFullWindow'] and f['durationSec'] >= 2.4]

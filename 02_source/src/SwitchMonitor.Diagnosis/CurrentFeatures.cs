@@ -17,6 +17,10 @@ namespace SwitchMonitor.Diagnosis
         public double SpikePeakA;
         /// <summary>尖峰所在采样点下标</summary>
         public int SpikeIndexA;
+        /// <summary>解锁终点下标（物理边界）</summary>
+        public int UnlockEndA;
+        /// <summary>锁闭起点下标（物理边界：密贴拐点）</summary>
+        public int LockStartA;
         /// <summary>解锁段均值 (A)</summary>
         public double UnlockMeanA;
         /// <summary>转换段均值 (A)</summary>
@@ -29,6 +33,8 @@ namespace SwitchMonitor.Diagnosis
         // B 相
         public double SpikePeakB;
         public int SpikeIndexB;
+        public int UnlockEndB;
+        public int LockStartB;
         public double UnlockMeanB;
         public double ConvMeanB;
         public double LockMeanB;
@@ -37,6 +43,8 @@ namespace SwitchMonitor.Diagnosis
         // C 相
         public double SpikePeakC;
         public int SpikeIndexC;
+        public int UnlockEndC;
+        public int LockStartC;
         public double UnlockMeanC;
         public double ConvMeanC;
         public double LockMeanC;

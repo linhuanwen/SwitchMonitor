@@ -36,15 +36,15 @@ def extract_phase(values):
     """对单相采样值执行五阶段分割，返回 dict。
     与 C# CurrentFeatureExtractor.ExtractPhaseInternal 算法一致。
 
-    五阶段位置：
+    使用 physeg_prototype 物理边界检测替代硬编码偏移量：
       ① 启动尖峰: 前15点
-      ② 解锁段:   [spikeIndex+2, spikeIndex+14)
-      ③ 转换段:   首选 [spikeIndex+20, activeEnd-40)
-                   退化 [spikeIndex+2, activeEnd)
-                   再退化 [0, activeEnd]
-      ④ 锁闭段:   [activeEnd-40, activeEnd-22)
+      ② 解锁段:   [spikeIndex+2, unlockEnd+1)  — detect_unlock_end()
+      ③ 转换段:   [unlockEnd+1, lockStart)      — detect_contact_and_lock()
+      ④ 锁闭段:   物理检测或退化 [activeEnd-40, activeEnd-22)
       ⑤ 缓放段:   [activeEnd-22, activeEnd-2)
     """
+    from physeg_prototype import detect_unlock_end, detect_contact_and_lock
+
     n = len(values)
     if n == 0:
         return _empty_phase()
@@ -60,40 +60,62 @@ def extract_phase(values):
         if values[i] > threshold:
             active_end = i
 
-    # ① 启动尖峰
+    # ① 启动尖峰（不变）
     head_len = min(15, n)
     head = values[:head_len]
     spike_peak = max(head)
-    spike_index = head.index(spike_peak)  # 多个相同取第一个
+    spike_index = head.index(spike_peak)
 
-    # ② 解锁段
-    ul_start = spike_index + 2
-    ul_end = min(spike_index + 14, n)
-    unlock_mean = _seg_mean(values, ul_start, ul_end)
-
-    # ③ 转换段
-    if active_end - 40 > spike_index + 20:
-        conv_start = spike_index + 20
-        conv_end = active_end - 40
+    # ② 解锁段 — 物理边界检测
+    unlock_end = detect_unlock_end(values, spike_index, active_end)
+    if unlock_end is not None and unlock_end > spike_index + 1:
+        ul_start = spike_index + 2
+        ul_end = unlock_end + 1
+        unlock_mean = _seg_mean(values, ul_start, ul_end)
     else:
-        conv_start = spike_index + 2
-        conv_end = active_end
-    if conv_start >= conv_end:
-        conv_start = 0
-        conv_end = active_end + 1
-    conv_mean = _seg_mean(values, conv_start, conv_end)
+        # 退化：用 spikeIndex+2 到 activeEnd*0.5
+        fallback_end = max(spike_index + 14, int(active_end * 0.5))
+        unlock_mean = _seg_mean(values, spike_index + 2, min(fallback_end, n))
+        unlock_end = None
 
-    # ④ 锁闭段
-    if active_end > 50:
-        lock_start = active_end - 40
-        lock_end = active_end - 22
-        if lock_start < 0:
-            lock_start = 0
-        lock_mean = _seg_mean(values, lock_start, lock_end)
+    # ③ 转换段 — 物理边界检测
+    lock_start, lock_peak = detect_contact_and_lock(values, active_end)
+    if lock_start is None:
+        lock_start = active_end - 40 if active_end > 50 else active_end
+
+    conv_start = (unlock_end + 1) if unlock_end is not None else (spike_index + 20)
+    conv_end = lock_start
+    if conv_end > conv_start and conv_start < n:
+        conv_mean = _seg_mean(values, conv_start, conv_end)
     else:
-        lock_mean = 0.0
+        # 退化
+        conv_start_fb = spike_index + 2
+        conv_end_fb = active_end
+        if conv_start_fb >= conv_end_fb:
+            conv_start_fb = 0
+            conv_end_fb = active_end + 1
+        conv_mean = _seg_mean(values, conv_start_fb, conv_end_fb)
 
-    # ⑤ 缓放段
+    # ④ 锁闭段 — 物理边界检测
+    if lock_peak is not None and lock_start is not None and lock_peak > lock_start:
+        pre_ramp = statistics.mean(values[lock_start - 5:lock_start + 1]) if lock_start >= 5 else values[lock_start]
+        post_peak_end = min(lock_peak + 40, active_end - 5)
+        lock_end_idx = lock_peak + 5
+        for i in range(lock_peak + 8, post_peak_end):
+            if i < n and (values[i] <= pre_ramp * 1.08 or values[i] <= values[lock_peak] * 0.55):
+                lock_end_idx = i
+                break
+        lock_mean = _seg_mean(values, lock_start, lock_end_idx + 1)
+    else:
+        # 退化
+        if active_end > 50:
+            ls2 = max(0, active_end - 40)
+            le2 = active_end - 22
+            lock_mean = _seg_mean(values, ls2, le2)
+        else:
+            lock_mean = 0.0
+
+    # ⑤ 缓放段（不变）
     if active_end > 30:
         tail_start = active_end - 22
         tail_end = active_end - 2
@@ -108,6 +130,8 @@ def extract_phase(values):
         'activeEnd': active_end,
         'spikePeak': round(spike_peak, 3),
         'spikeIndex': spike_index,
+        'unlockEnd': unlock_end,
+        'lockStart': lock_start,
         'unlockMean': round(unlock_mean, 3),
         'convMean': round(conv_mean, 3),
         'lockMean': round(lock_mean, 3),
@@ -119,6 +143,7 @@ def _empty_phase():
     return {
         'isValid': False, 'activeEnd': 0,
         'spikePeak': 0.0, 'spikeIndex': 0,
+        'unlockEnd': None, 'lockStart': None,
         'unlockMean': 0.0, 'convMean': 0.0,
         'lockMean': 0.0, 'tailMean': 0.0,
     }
@@ -654,13 +679,15 @@ def cmd_selftest():
     assert f_long['isFullWindow'], f"IsFullWindow=true for n≥780, got n={f_long['sampleCount']}"
     print("PASS: FullWindow 检测 (n≥780)")
 
-    # ── 测试 5: 短曲线 TailMean/LockMean=0 ──
+    # ── 测试 5: 短曲线 TailMean=0（物理边界版下 LockMean 可能非零） ──
     curve_short = _make_phase_curve(25, spike_index=5, conv_mean=2.5, active_end=20, seed=42)
     f_short = extract_phase(curve_short)
     assert f_short['isValid'], "短曲线 IsValid=true"
     assert f_short['tailMean'] == 0.0, f"activeEnd≤30 → TailMean=0, got {f_short['tailMean']}"
-    assert f_short['lockMean'] == 0.0, f"activeEnd≤50 → LockMean=0, got {f_short['lockMean']}"
-    print("PASS: 短曲线 TailMean=0 LockMean=0")
+    # 物理边界版：lockMean 不再受 activeEnd>50 约束，由物理检测决定
+    assert f_short['unlockEnd'] is not None or f_short['lockStart'] is not None, \
+        "短曲线至少有一个物理边界被检测到或正确退化"
+    print("PASS: 短曲线 TailMean=0（物理边界版 LockMean 由检测决定）")
 
     # ── 测试 6: 不平衡度计算 ──
     # threePhaseMean=(3.0+2.5+2.0)/3=2.5

@@ -1,4 +1,4 @@
-
+﻿
 Microsoft Visual Studio Solution File, Format Version 11.00
 # Visual Studio 2010
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SwitchMonitor.UI", "SwitchMonitor.UI\SwitchMonitor.UI.csproj", "{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}"
@@ -12,6 +12,14 @@ EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SwitchMonitor.Tests", "SwitchMonitor.Tests\SwitchMonitor.Tests.csproj", "{E5F6A7B8-C9D0-1234-EF56-789012345678}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SwitchMonitor.Tools", "SwitchMonitor.Tools\SwitchMonitor.Tools.csproj", "{F6A7B8C9-D0E1-2345-F678-901234567890}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SwitchMonitor.Station", "SwitchMonitor.Station\SwitchMonitor.Station.csproj", "{A7B8C9D0-E1F2-3456-7890-ABCDEF012345}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SwitchMonitor.Storage", "SwitchMonitor.Storage\SwitchMonitor.Storage.csproj", "{C8D9E0F1-A2B3-4567-8901-23456789ABCD}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SwitchMonitor.DataForwarder", "SwitchMonitor.DataForwarder\SwitchMonitor.DataForwarder.csproj", "{1514E37C-AF9A-4144-B87B-62CCE7E2E31D}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SwitchMonitor.Network", "SwitchMonitor.Network\SwitchMonitor.Network.csproj", "{B8C9D0E1-F2A3-4567-8901-BCDEF0123456}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -43,5 +51,21 @@ Global
 		{F6A7B8C9-D0E1-2345-F678-901234567890}.Debug|x86.Build.0 = Debug|x86
 		{F6A7B8C9-D0E1-2345-F678-901234567890}.Release|x86.ActiveCfg = Release|x86
 		{F6A7B8C9-D0E1-2345-F678-901234567890}.Release|x86.Build.0 = Release|x86
+		{A7B8C9D0-E1F2-3456-7890-ABCDEF012345}.Debug|x86.ActiveCfg = Debug|x86
+		{A7B8C9D0-E1F2-3456-7890-ABCDEF012345}.Debug|x86.Build.0 = Debug|x86
+		{A7B8C9D0-E1F2-3456-7890-ABCDEF012345}.Release|x86.ActiveCfg = Release|x86
+		{A7B8C9D0-E1F2-3456-7890-ABCDEF012345}.Release|x86.Build.0 = Release|x86
+		{C8D9E0F1-A2B3-4567-8901-23456789ABCD}.Debug|x86.ActiveCfg = Debug|x86
+		{C8D9E0F1-A2B3-4567-8901-23456789ABCD}.Debug|x86.Build.0 = Debug|x86
+		{C8D9E0F1-A2B3-4567-8901-23456789ABCD}.Release|x86.ActiveCfg = Release|x86
+		{C8D9E0F1-A2B3-4567-8901-23456789ABCD}.Release|x86.Build.0 = Release|x86
+		{1514E37C-AF9A-4144-B87B-62CCE7E2E31D}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{1514E37C-AF9A-4144-B87B-62CCE7E2E31D}.Debug|x86.Build.0 = Debug|Any CPU
+		{1514E37C-AF9A-4144-B87B-62CCE7E2E31D}.Release|x86.ActiveCfg = Release|Any CPU
+		{1514E37C-AF9A-4144-B87B-62CCE7E2E31D}.Release|x86.Build.0 = Release|Any CPU
+		{B8C9D0E1-F2A3-4567-8901-BCDEF0123456}.Debug|x86.ActiveCfg = Debug|x86
+		{B8C9D0E1-F2A3-4567-8901-BCDEF0123456}.Debug|x86.Build.0 = Debug|x86
+		{B8C9D0E1-F2A3-4567-8901-BCDEF0123456}.Release|x86.ActiveCfg = Release|x86
+		{B8C9D0E1-F2A3-4567-8901-BCDEF0123456}.Release|x86.Build.0 = Release|x86
 	EndGlobalSection
 EndGlobal

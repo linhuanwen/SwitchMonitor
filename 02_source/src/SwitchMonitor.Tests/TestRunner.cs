@@ -43,6 +43,46 @@ namespace SwitchMonitor.Tests
             D7Tests.Run();
 
             Console.WriteLine();
+            Console.WriteLine("=== D8 Standard Curve Builder Tests ===");
+
+            D8Tests.Run();
+
+            Console.WriteLine();
+            Console.WriteLine("=== D9 Drift Estimator Tests ===");
+
+            D9Tests.Run();
+
+            Console.WriteLine();
+            Console.WriteLine("=== N01-1 SQLite Storage Layer Tests ===");
+            Console.WriteLine();
+
+            N01_1Tests.Run();
+
+            Console.WriteLine();
+            Console.WriteLine("=== N01-2 DataForwarder Tests ===");
+            Console.WriteLine();
+
+            N01_2Tests.Run();
+
+            Console.WriteLine();
+            Console.WriteLine("=== N01-3 Network Layer Receiver Tests ===");
+            Console.WriteLine();
+
+            N01_3Tests.Run();
+
+            Console.WriteLine();
+            Console.WriteLine("=== N01-5 Config Model Upgrade Tests ===");
+            Console.WriteLine();
+
+            N01_5Tests.Run();
+
+            Console.WriteLine();
+            Console.WriteLine("=== N01-6 Integration Tests ===");
+            Console.WriteLine();
+
+            N01_6Tests.Run();
+
+            Console.WriteLine();
             Console.WriteLine("=== 测试完成: {0} 通过, {1} 失败 ===", _passed, _failed);
         }
 

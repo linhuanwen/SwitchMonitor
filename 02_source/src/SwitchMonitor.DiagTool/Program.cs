@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Web.Script.Serialization;
 using SwitchMonitor.Data;
@@ -123,8 +124,9 @@ namespace SwitchMonitor.DiagTool
                         SampleCount = 300, IsFullWindow = false, IsValid = true,
                         ActiveEnd = 293, DurationSec = 11.76,
                         SpikePeak = 3.392, SpikeIndex = 6,
-                        UnlockMean = 0.309, ConvMean = 0.308, ConvMax = 0.412,
-                        StepRatio = 1.158, LockMean = 0.308, TailMean = 0.208
+                        UnlockEnd = 111, LockStart = 238,
+                        UnlockMean = 0.286, ConvMean = 0.319, ConvMax = 0.353,
+                        StepRatio = 0.922, LockMean = 0.353, TailMean = 0.251
                     },
                     // 诊断期望：正常（空列表）
                     ExpectedDiag = new List<string>()
@@ -140,8 +142,9 @@ namespace SwitchMonitor.DiagTool
                         SampleCount = 220, IsFullWindow = false, IsValid = true,
                         ActiveEnd = 213, DurationSec = 8.56,
                         SpikePeak = 3.294, SpikeIndex = 6,
-                        UnlockMean = 0.317, ConvMean = 0.254, ConvMax = 0.294,
-                        StepRatio = 1.07, LockMean = 0.239, TailMean = 0.202
+                        UnlockEnd = 104, LockStart = 160,
+                        UnlockMean = 0.254, ConvMean = 0.267, ConvMax = 0.275,
+                        StepRatio = 0.971, LockMean = 0.251, TailMean = 0.217
                     },
                     // 诊断期望：正常（空列表）
                     ExpectedDiag = new List<string>()
@@ -157,8 +160,9 @@ namespace SwitchMonitor.DiagTool
                         SampleCount = 790, IsFullWindow = true, IsValid = true,
                         ActiveEnd = 783, DurationSec = 31.36,
                         SpikePeak = 4.353, SpikeIndex = 7,
-                        UnlockMean = 0.302, ConvMean = 0.545, ConvMax = 3.549,
-                        StepRatio = 1.108, LockMean = 0.706, TailMean = 0.706
+                        UnlockEnd = 320, LockStart = 513,
+                        UnlockMean = 0.572, ConvMean = 0.286, ConvMax = 0.627,
+                        StepRatio = 1.185, LockMean = 0.704, TailMean = 0.706
                     },
                     // 诊断期望：恰好 [R1 故障]
                     ExpectedDiag = new List<string> { "R1" }
@@ -174,7 +178,8 @@ namespace SwitchMonitor.DiagTool
                         SampleCount = 27, IsFullWindow = false, IsValid = true,
                         ActiveEnd = 20, DurationSec = 0.84,
                         SpikePeak = 3.373, SpikeIndex = 5,
-                        UnlockMean = 0.216, ConvMean = 0.216, ConvMax = 0.235,
+                        UnlockEnd = 11, LockStart = -1,
+                        UnlockMean = 0.216, ConvMean = 0.216, ConvMax = 0.216,
                         StepRatio = 1.0, LockMean = 0.0, TailMean = 0.0
                     },
                     // 诊断期望：恰好 [R2 报警]
@@ -225,6 +230,8 @@ namespace SwitchMonitor.DiagTool
                 fixturePass &= CheckField("DurationSec",  actual.DurationSec,  fixture.Expected.DurationSec,  true,  ref allPass);
                 fixturePass &= CheckField("SpikePeak",    actual.SpikePeak,    fixture.Expected.SpikePeak,    true,  ref allPass);
                 fixturePass &= CheckField("SpikeIndex",   actual.SpikeIndex,   fixture.Expected.SpikeIndex,   false, ref allPass);
+                fixturePass &= CheckField("UnlockEnd",    actual.UnlockEnd,   fixture.Expected.UnlockEnd,    false, ref allPass);
+                fixturePass &= CheckField("LockStart",    actual.LockStart,   fixture.Expected.LockStart,    false, ref allPass);
                 fixturePass &= CheckField("UnlockMean",   actual.UnlockMean,   fixture.Expected.UnlockMean,   true,  ref allPass);
                 fixturePass &= CheckField("ConvMean",     actual.ConvMean,     fixture.Expected.ConvMean,     true,  ref allPass);
                 fixturePass &= CheckField("ConvMax",      actual.ConvMax,      fixture.Expected.ConvMax,      true,  ref allPass);
@@ -681,16 +688,23 @@ namespace SwitchMonitor.DiagTool
                     continue;
                 }
 
-                var baseline = CurrentBaselineBuilder.Build(allFeatures, 30);
-                if (baseline != null)
+                // 按两个方向分别生成基线（对齐功率基线 16 条目格式）
+                var directions = new[] { "定位→反位", "反位→定位" };
+                foreach (var dir in directions)
                 {
-                    baseline.DateFrom = dateFrom;
-                    baseline.DateTo = dateTo;
-                    store.Switches[switchId] = baseline;
+                    var baseline = CurrentBaselineBuilder.Build(allFeatures, 30, dir);
+                    if (baseline != null)
+                    {
+                        baseline.DateFrom = dateFrom;
+                        baseline.DateTo = dateTo;
+                        string key = CurrentBaselineStore.MakeKey(switchId, dir);
+                        store.Switches[key] = baseline;
+                    }
                 }
-                else
+
+                if (!store.Switches.Keys.Any(k => k.StartsWith(switchId + "|")))
                 {
-                    Console.WriteLine("{0,-6} 正常样本={1} 不足30，跳过", switchId, allFeatures.Count);
+                    Console.WriteLine("{0,-6} 正常样本不足30（双向均失败），跳过", switchId);
                 }
             }
 

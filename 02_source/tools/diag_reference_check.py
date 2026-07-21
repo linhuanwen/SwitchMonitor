@@ -52,7 +52,12 @@ def read_power_rows(path):
 
 
 def extract(v):
-    """特征提取 — CONTEXT.md §3 的权威参考实现。"""
+    """特征提取 — 物理边界分段（ZYJ7 外锁闭装置工作原理）。
+    从 physeg_prototype 导入检测算法，与 C# FeatureExtractor 一致。
+    """
+    from physeg_prototype import (detect_unlock_end, detect_contact_and_lock,
+                                   moving_average)
+
     f = {}
     f['sampleCount'] = len(v)
     f['isFullWindow'] = len(v) >= 780
@@ -60,6 +65,7 @@ def extract(v):
     f['isValid'] = bool(v) and peak_all > 0.01
     if not f['isValid']:
         return f
+
     th = max(peak_all * 0.05, 0.01)
     last = 0
     for i, x in enumerate(v):
@@ -67,32 +73,78 @@ def extract(v):
             last = i
     f['activeEnd'] = last
     f['durationSec'] = round((last + 1) * 0.04, 2)
+
+    # ① 启动尖峰（不变）
     head = v[:15]
     f['spikePeak'] = round(max(head), 3)
     sp = head.index(max(head))
     f['spikeIndex'] = sp
-    seg = v[sp + 2:sp + 14]
-    f['unlockMean'] = round(statistics.mean(seg), 3) if seg else 0.0
-    conv = v[sp + 20:last - 40] if last - 40 > sp + 20 else v[sp + 2:last]
-    if not conv:
-        conv = v[:last + 1]
-    f['convMean'] = round(statistics.mean(conv), 3)
-    f['convMax'] = round(max(conv), 3)
-    third = len(conv) // 3
-    if third >= 5:
-        f['stepRatio'] = round(statistics.mean(conv[-third:]) / max(statistics.mean(conv[:third]), 0.01), 3)
+
+    # ② 解锁段：物理边界检测
+    unlock_end = detect_unlock_end(v, sp, last)
+    if unlock_end is not None and unlock_end > sp + 1:
+        ul_seg = v[sp + 2:unlock_end + 1]
+        f['unlockMean'] = round(statistics.mean(ul_seg), 3) if ul_seg else 0.0
     else:
+        fallback_end = max(sp + 14, int(last * 0.5))
+        ul_seg = v[sp + 2:fallback_end]
+        f['unlockMean'] = round(statistics.mean(ul_seg), 3) if ul_seg else 0.0
+
+    # ③ 密贴拐点 + 转换段
+    lock_start, lock_peak = detect_contact_and_lock(v, last)
+    if lock_start is None:
+        lock_start = last - 40 if last > 50 else last
+
+    conv_start = (unlock_end + 1) if unlock_end is not None else (sp + 14)
+    conv_end = lock_start
+    if conv_end > conv_start and conv_start < len(v):
+        conv = v[conv_start:conv_end]
+        if conv:
+            f['convMean'] = round(statistics.mean(conv), 3)
+            f['convMax'] = round(max(conv), 3)
+            third = len(conv) // 3
+            if third >= 5:
+                f['stepRatio'] = round(statistics.mean(conv[-third:]) / max(statistics.mean(conv[:third]), 0.01), 3)
+            else:
+                f['stepRatio'] = 1.0
+        else:
+            f['convMean'] = 0.0
+            f['convMax'] = 0.0
+            f['stepRatio'] = 1.0
+    else:
+        f['convMean'] = 0.0
+        f['convMax'] = 0.0
         f['stepRatio'] = 1.0
-    lock_seg = v[last - 40:last - 22] if last > 50 else []
-    if lock_seg:
-        # 退化策略：last-40 < 0 时退化为 [0, last-22)
-        if last - 40 < 0:
-            lock_seg = v[0:last - 22]
-        f['lockMean'] = round(statistics.mean(lock_seg), 3)
+
+    # ④ 锁闭段 + 缓放段
+    if lock_peak is not None and lock_start is not None and lock_peak > lock_start:
+        pre_ramp = statistics.mean(v[lock_start - 5:lock_start + 1]) if lock_start >= 5 else v[lock_start]
+        post_peak_end = min(lock_peak + 40, last - 5)
+        lock_end = lock_peak + 5
+        for i in range(lock_peak + 8, post_peak_end):
+            if i < len(v) and (v[i] <= pre_ramp * 1.08 or v[i] <= v[lock_peak] * 0.55):
+                lock_end = i
+                break
+        lock_seg = v[lock_start:lock_end + 1]
+        f['lockMean'] = round(statistics.mean(lock_seg), 3) if lock_seg else 0.0
+        tail_start = lock_end + 1
     else:
-        f['lockMean'] = 0.0
-    tail = v[last - 22:last - 2] if last > 30 else []
-    f['tailMean'] = round(statistics.mean(tail), 3) if tail else 0.0
+        if last > 50:
+            ls2 = max(0, last - 40)
+            le2 = last - 22
+            lock_seg = v[ls2:le2]
+            f['lockMean'] = round(statistics.mean(lock_seg), 3) if lock_seg else 0.0
+        else:
+            f['lockMean'] = 0.0
+        tail_start = max(0, last - 22)
+
+    tail_end = last - 2
+    if tail_end > tail_start and last > 30:
+        tail_seg = v[tail_start:tail_end]
+        f['tailMean'] = round(statistics.mean(tail_seg), 3) if tail_seg else 0.0
+    else:
+        f['tailMean'] = 0.0
+
     return f
 
 

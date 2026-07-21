@@ -107,6 +107,8 @@ namespace SwitchMonitor.Diagnosis
             public int ActiveEnd;
             public double SpikePeak;
             public int SpikeIndex;
+            public int UnlockEnd;
+            public int LockStart;
             public double UnlockMean;
             public double ConvMean;
             public double LockMean;
@@ -152,7 +154,7 @@ namespace SwitchMonitor.Diagnosis
             }
             f.ActiveEnd = activeEnd;
 
-            // ① 启动尖峰：前 15 点内找最大值（多个相同取第一个）
+            // ① 启动尖峰（不变）
             int headLen = Math.Min(15, n);
             double spikePeak = values[0];
             int spikeIndex = 0;
@@ -167,63 +169,78 @@ namespace SwitchMonitor.Diagnosis
             f.SpikePeak = Math.Round(spikePeak, 3);
             f.SpikeIndex = spikeIndex;
 
-            // ② 解锁段：[spikeIndex+2, spikeIndex+14) 共 12 点
-            int ulStart = spikeIndex + 2;
-            int ulEnd = Math.Min(spikeIndex + 14, n);
-            f.UnlockMean = ulStart < ulEnd
-                ? Math.Round(SegmentMean(values, ulStart, ulEnd), 3)
-                : 0.0;
-
-            // ③ 转换段：首选 [spikeIndex+20, activeEnd-40)
-            //    退化：[spikeIndex+2, activeEnd)；再退化：[0, activeEnd]
-            int convStart, convEnd;
-            if (activeEnd - 40 > spikeIndex + 20)
+            // ② 解锁段：物理边界检测
+            int unlockEnd = FeatureExtractor.DetectUnlockEnd(values, spikeIndex, activeEnd);
+            f.UnlockEnd = unlockEnd;
+            if (unlockEnd > spikeIndex + 1)
             {
-                convStart = spikeIndex + 20;
-                convEnd = activeEnd - 40;
+                f.UnlockMean = Math.Round(SegmentMean(values, spikeIndex + 2, unlockEnd + 1), 3);
             }
             else
             {
-                convStart = spikeIndex + 2;
-                convEnd = activeEnd;
+                int fallbackEnd = Math.Max(spikeIndex + 14, (int)(activeEnd * 0.5));
+                f.UnlockMean = Math.Round(SegmentMean(values, spikeIndex + 2, fallbackEnd), 3);
             }
-            if (convStart >= convEnd)
+
+            // ③ 密贴拐点 + 转换段
+            int lockStart, lockPeak;
+            FeatureExtractor.DetectContactAndLock(values, activeEnd, out lockStart, out lockPeak);
+            f.LockStart = lockStart;
+            if (lockStart < 0)
             {
-                convStart = 0;
-                convEnd = activeEnd + 1;
+                lockStart = activeEnd > 50 ? activeEnd - 40 : activeEnd;
             }
+
+            int convStart = (unlockEnd > spikeIndex) ? unlockEnd + 1 : spikeIndex + 14;
+            int convEnd = lockStart;
             f.ConvMean = convStart < convEnd
                 ? Math.Round(SegmentMean(values, convStart, convEnd), 3)
                 : 0.0;
 
-            // ④ 锁闭段：[activeEnd-40, activeEnd-22)；activeEnd ≤ 50 → lockMean = 0
-            if (activeEnd > 50)
+            // ④ 锁闭段 + 缓放段
+            if (lockPeak >= 0 && lockStart >= 0 && lockPeak > lockStart)
             {
-                int lockStart = activeEnd - 40;
-                int lockEnd = activeEnd - 22;
-                if (lockStart < 0) lockStart = 0;
-                f.LockMean = lockStart < lockEnd
-                    ? Math.Round(SegmentMean(values, lockStart, lockEnd), 3)
+                double preRampLevel = lockStart >= 5
+                    ? SegmentMean(values, lockStart - 5, lockStart + 1)
+                    : values[lockStart];
+                int postPeakSearchEnd = Math.Min(lockPeak + 40, activeEnd - 5);
+                int lockEnd = lockPeak + 5;
+                for (int i = lockPeak + 8; i < postPeakSearchEnd && i < n; i++)
+                {
+                    if (values[i] <= preRampLevel * 1.08 || values[i] <= values[lockPeak] * 0.55)
+                    {
+                        lockEnd = i;
+                        break;
+                    }
+                }
+                f.LockMean = Math.Round(SegmentMean(values, lockStart, lockEnd + 1), 3);
+                int tailStart2 = lockEnd + 1;
+                int tailEnd2 = activeEnd - 2;
+                f.TailMean = (tailEnd2 > tailStart2 && activeEnd > 30)
+                    ? Math.Round(SegmentMean(values, tailStart2, tailEnd2), 3)
                     : 0.0;
             }
             else
             {
-                f.LockMean = 0.0;
-            }
-
-            // ⑤ 缓放段：[activeEnd-22, activeEnd-2)；activeEnd ≤ 30 → tailMean = 0
-            if (activeEnd > 30)
-            {
-                int tailStart = activeEnd - 22;
-                int tailEnd = activeEnd - 2;
-                if (tailStart < 0) tailStart = 0;
-                f.TailMean = tailStart < tailEnd
-                    ? Math.Round(SegmentMean(values, tailStart, tailEnd), 3)
-                    : 0.0;
-            }
-            else
-            {
-                f.TailMean = 0.0;
+                // 退化：旧算法
+                if (activeEnd > 50)
+                {
+                    int lsOld = Math.Max(0, activeEnd - 40);
+                    int leOld = activeEnd - 22;
+                    f.LockMean = lsOld < leOld
+                        ? Math.Round(SegmentMean(values, lsOld, leOld), 3)
+                        : 0.0;
+                }
+                else { f.LockMean = 0.0; }
+                if (activeEnd > 30)
+                {
+                    int ts = Math.Max(0, activeEnd - 22);
+                    int te = activeEnd - 2;
+                    f.TailMean = ts < te
+                        ? Math.Round(SegmentMean(values, ts, te), 3)
+                        : 0.0;
+                }
+                else { f.TailMean = 0.0; }
             }
 
             return f;
@@ -237,6 +254,8 @@ namespace SwitchMonitor.Diagnosis
                 case 'A':
                     f.SpikePeakA = phase.SpikePeak;
                     f.SpikeIndexA = phase.SpikeIndex;
+                    f.UnlockEndA = phase.UnlockEnd;
+                    f.LockStartA = phase.LockStart;
                     f.UnlockMeanA = phase.UnlockMean;
                     f.ConvMeanA = phase.ConvMean;
                     f.LockMeanA = phase.LockMean;
@@ -245,6 +264,8 @@ namespace SwitchMonitor.Diagnosis
                 case 'B':
                     f.SpikePeakB = phase.SpikePeak;
                     f.SpikeIndexB = phase.SpikeIndex;
+                    f.UnlockEndB = phase.UnlockEnd;
+                    f.LockStartB = phase.LockStart;
                     f.UnlockMeanB = phase.UnlockMean;
                     f.ConvMeanB = phase.ConvMean;
                     f.LockMeanB = phase.LockMean;
@@ -253,6 +274,8 @@ namespace SwitchMonitor.Diagnosis
                 case 'C':
                     f.SpikePeakC = phase.SpikePeak;
                     f.SpikeIndexC = phase.SpikeIndex;
+                    f.UnlockEndC = phase.UnlockEnd;
+                    f.LockStartC = phase.LockStart;
                     f.UnlockMeanC = phase.UnlockMean;
                     f.ConvMeanC = phase.ConvMean;
                     f.LockMeanC = phase.LockMean;
